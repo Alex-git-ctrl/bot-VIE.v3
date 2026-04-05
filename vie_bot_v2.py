@@ -85,7 +85,15 @@ HTTP_HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/124.0.0.0 Safari/537.36"
     ),
-    "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
 }
 
 
@@ -340,6 +348,28 @@ def get_sg_new(seen_ids: set) -> list:
 
             print(f"   Chargement de {SG_URL} ...", file=sys.stderr)
             page.goto(SG_URL, wait_until="networkidle", timeout=60_000)
+
+            # Accepter la bannière cookies si elle est présente
+            cookie_selectors = [
+                "button:has-text('Accept all')",
+                "button:has-text('Tout accepter')",
+                "button:has-text('Accept All')",
+                "button:has-text('Accepter tout')",
+                "button:has-text('Accepter')",
+                "button:has-text('Accept')",
+                "[id*='accept']:has-text('accept')",
+                "[class*='accept']:has-text('accept')",
+            ]
+            for cookie_sel in cookie_selectors:
+                try:
+                    btn = page.wait_for_selector(cookie_sel, timeout=4_000)
+                    if btn:
+                        btn.click()
+                        print("   Bannière cookies acceptée.", file=sys.stderr)
+                        page.wait_for_load_state("networkidle", timeout=15_000)
+                        break
+                except Exception:
+                    continue
 
             # Trouver le bon sélecteur de carte
             found_selector = None
