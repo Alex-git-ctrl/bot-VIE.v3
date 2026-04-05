@@ -238,62 +238,99 @@ def get_bf_new(seen_ids: set) -> list:
 
 def get_bnp_new(seen_ids: set) -> list:
     """
-    Scrape les offres VIE sur le site BNP Paribas (rendu côté serveur).
+    Scrape les offres VIE sur le site BNP Paribas via Playwright (headless).
+    Le site retourne 403 aux requêtes HTTP simples (WAF) — Playwright contourne
+    ce blocage car il présente un vrai fingerprint navigateur.
     Sélecteur : article[class*='card-offer']
-    Pagination : ?page=N (lien <a data-to="{N}">)
+    Pagination : ?page=N
     """
     print("📡 BNP Paribas...", file=sys.stderr)
+    if not PLAYWRIGHT_AVAILABLE:
+        print("   Playwright absent — BNP Paribas ignorée.", file=sys.stderr)
+        return []
+
     new_offers = []
-    page = 1
 
-    while True:
-        url = BNP_BASE_URL if page == 1 else f"{BNP_BASE_URL}?page={page}"
-        try:
-            r = requests.get(url, headers=HTTP_HEADERS, timeout=30)
-            r.raise_for_status()
-        except requests.RequestException as exc:
-            print(f"[BNP erreur page={page}] {exc}", file=sys.stderr)
-            break
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            ctx     = browser.new_context(user_agent=HTTP_HEADERS["User-Agent"])
+            page_num = 1
 
-        soup  = BeautifulSoup(r.text, "html.parser")
-        cards = soup.find_all("article", class_=lambda c: c and "card-offer" in c)
-        if not cards:
-            print(f"[BNP] Aucune offre trouvée page {page}, arrêt.", file=sys.stderr)
-            break
+            while True:
+                url = BNP_BASE_URL if page_num == 1 else f"{BNP_BASE_URL}?page={page_num}"
+                print(f"   Chargement BNP page {page_num} : {url}", file=sys.stderr)
 
-        for card in cards:
-            link_tag = card.find("a", href=True)
-            if not link_tag:
-                continue
-            href = link_tag["href"]
-            if not href.startswith("http"):
-                href = "https://group.bnpparibas" + href
+                try:
+                    pw_page = ctx.new_page()
+                    pw_page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+                    pw_page.wait_for_timeout(2_000)  # laisser le JS s'initialiser
 
-            # Structure texte : "VIE\n{titre}\n{localisation}"
-            lines = [l.strip() for l in card.get_text(separator="\n").split("\n") if l.strip()]
-            title    = lines[1] if len(lines) > 1 else (lines[0] if lines else "Sans titre")
-            location = lines[-1].title() if len(lines) > 2 else ""
+                    # Accepter éventuellement la bannière cookies
+                    for ck_sel in [
+                        "button:has-text('Accepter')",
+                        "button:has-text('Accept')",
+                        "button:has-text('Tout accepter')",
+                        "#tarteaucitronPersonalize2",
+                    ]:
+                        try:
+                            btn = pw_page.wait_for_selector(ck_sel, timeout=3_000)
+                            if btn:
+                                btn.click()
+                                pw_page.wait_for_timeout(1_000)
+                                break
+                        except Exception:
+                            continue
 
-            # UID = slug de l'URL de l'offre
-            slug = href.rstrip("/").split("/")[-1]
-            uid  = f"bnp_{slug}"
+                    html = pw_page.content()
+                    pw_page.close()
+                except Exception as exc:
+                    print(f"[BNP erreur page={page_num}] {exc}", file=sys.stderr)
+                    break
 
-            if uid not in seen_ids:
-                new_offers.append({
-                    "uid":      uid,
-                    "title":    title,
-                    "company":  "BNP Paribas",
-                    "location": location,
-                    "url":      href,
-                    "source":   "BNP Paribas",
-                    "color":    BNP_COLOR,
-                })
+                soup  = BeautifulSoup(html, "html.parser")
+                cards = soup.find_all("article", class_=lambda c: c and "card-offer" in c)
+                if not cards:
+                    print(f"[BNP] Aucune offre trouvée page {page_num}, arrêt.", file=sys.stderr)
+                    break
 
-        # Vérifier s'il existe une page suivante
-        next_link = soup.find("a", attrs={"data-to": str(page + 1)})
-        if not next_link:
-            break
-        page += 1
+                print(f"   {len(cards)} offres trouvées page {page_num}.", file=sys.stderr)
+                for card in cards:
+                    link_tag = card.find("a", href=True)
+                    if not link_tag:
+                        continue
+                    href = link_tag["href"]
+                    if not href.startswith("http"):
+                        href = "https://group.bnpparibas" + href
+
+                    lines = [l.strip() for l in card.get_text(separator="\n").split("\n") if l.strip()]
+                    title    = lines[1] if len(lines) > 1 else (lines[0] if lines else "Sans titre")
+                    location = lines[-1].title() if len(lines) > 2 else ""
+
+                    slug = href.rstrip("/").split("/")[-1]
+                    uid  = f"bnp_{slug}"
+
+                    if uid not in seen_ids:
+                        new_offers.append({
+                            "uid":      uid,
+                            "title":    title,
+                            "company":  "BNP Paribas",
+                            "location": location,
+                            "url":      href,
+                            "source":   "BNP Paribas",
+                            "color":    BNP_COLOR,
+                        })
+
+                # Vérifier s'il existe une page suivante
+                next_link = soup.find("a", attrs={"data-to": str(page_num + 1)})
+                if not next_link:
+                    break
+                page_num += 1
+
+            browser.close()
+
+    except Exception as exc:
+        print(f"[BNP erreur général] {exc}", file=sys.stderr)
 
     print(f"   {len(new_offers)} nouvelle(s) offre(s) BNP.", file=sys.stderr)
     return new_offers
@@ -347,7 +384,8 @@ def get_sg_new(seen_ids: set) -> list:
             page    = ctx.new_page()
 
             print(f"   Chargement de {SG_URL} ...", file=sys.stderr)
-            page.goto(SG_URL, wait_until="networkidle", timeout=60_000)
+            page.goto(SG_URL, wait_until="domcontentloaded", timeout=60_000)
+            page.wait_for_timeout(3_000)
 
             # Accepter la bannière cookies si elle est présente
             cookie_selectors = [
@@ -360,16 +398,32 @@ def get_sg_new(seen_ids: set) -> list:
                 "[id*='accept']:has-text('accept')",
                 "[class*='accept']:has-text('accept')",
             ]
+            cookie_accepted = False
             for cookie_sel in cookie_selectors:
                 try:
                     btn = page.wait_for_selector(cookie_sel, timeout=4_000)
                     if btn:
                         btn.click()
                         print("   Bannière cookies acceptée.", file=sys.stderr)
-                        page.wait_for_load_state("networkidle", timeout=15_000)
+                        cookie_accepted = True
+                        page.wait_for_timeout(2_000)
                         break
                 except Exception:
                     continue
+
+            # Si la bannière cookies a provoqué une navigation vers la homepage,
+            # recharger l'URL de recherche des VIE
+            if cookie_accepted:
+                print(f"   Rechargement de {SG_URL} après cookies...", file=sys.stderr)
+                page.goto(SG_URL, wait_until="domcontentloaded", timeout=60_000)
+                page.wait_for_timeout(5_000)
+
+            # Attendre que les résultats Algolia se chargent
+            try:
+                page.wait_for_load_state("networkidle", timeout=20_000)
+            except Exception:
+                pass
+            page.wait_for_timeout(3_000)
 
             # Trouver le bon sélecteur de carte
             found_selector = None
