@@ -8,7 +8,7 @@ jobs:
   run-bot:
     runs-on: ubuntu-latest
     permissions:
-      contents: write          # nécessaire pour pusher seen_offers.json
+      contents: write
 
     steps:
       - name: Récupérer le code
@@ -20,7 +20,7 @@ jobs:
           python-version: '3.11'
 
       - name: Installer les dépendances
-        run: pip install requests beautifulsoup4 playwright playwright-stealth
+        run: pip install requests beautifulsoup4 playwright tf-playwright-stealth
 
       - name: Installer Playwright Chromium
         run: playwright install chromium
