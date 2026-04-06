@@ -20,7 +20,7 @@ jobs:
           python-version: '3.11'
 
       - name: Installer les dépendances
-        run: pip install requests beautifulsoup4 playwright
+        run: pip install requests beautifulsoup4 playwright playwright-stealth
 
       - name: Installer Playwright Chromium
         run: playwright install chromium
