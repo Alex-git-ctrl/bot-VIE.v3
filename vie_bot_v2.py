@@ -11,7 +11,7 @@ Variables d'environnement requises (GitHub Secrets) :
   RECIPIENT      -> adresse de réception (facultatif, défaut = GMAIL_ADDRESS)
 
 Dépendances :
-  pip install requests beautifulsoup4 playwright tf-playwright-stealth
+  pip install requests beautifulsoup4 playwright playwright-stealth
   playwright install chromium
 """
 
@@ -56,8 +56,8 @@ BF_SEARCH_URL = (
 )
 BF_PAYLOAD = {
     "query": None,
-    "specializationsIds": ["19"],
-    "geographicZones": ["2", "3", "4"],
+    "specializationsIds": ["19"],        # Finance / Comptabilité / Gestion / Banque
+    "geographicZones": ["2", "3", "4"],  # Amériques + Asie/Pacifique
     "teletravail": ["0"],
     "porteEnv": ["0"],
     "activitySectorId": [],
@@ -81,12 +81,12 @@ SG_BASE  = "https://careers.societegenerale.com"
 SG_COLOR = "#e30613"
 
 # Général
-LOOKBACK_DAYS = 3
+LOOKBACK_DAYS = 14
 SEEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seen_offers.json")
 
-GMAIL_ADDRESS  = os.environ.get("GMAIL_ADDRESS", "").strip()
+GMAIL_ADDRESS = os.environ.get("GMAIL_ADDRESS", "").strip()
 GMAIL_PASSWORD = os.environ.get("GMAIL_PASSWORD", "").strip()
-RECIPIENT      = os.environ.get("RECIPIENT", GMAIL_ADDRESS).strip()
+RECIPIENT     = os.environ.get("RECIPIENT", GMAIL_ADDRESS).strip()
 
 HTTP_HEADERS = {
     "User-Agent": (
@@ -248,7 +248,7 @@ def get_bf_new(seen_ids: set) -> list:
 def get_bnp_new(seen_ids: set) -> list:
     """
     BNP Paribas utilise Akamai EdgeSuite qui bloque systématiquement les plages
-    IP des serveurs GitHub Actions (Microsoft Azure). Ce blocage est décidé côté
+    IP des serveurs GitHub Actions (Microsoft Azure).  Ce blocage est décidé côté
     réseau avant même l'évaluation du fingerprint navigateur — aucun contournement
     logiciel n'est possible depuis GitHub Actions.
 
@@ -270,22 +270,22 @@ def get_bnp_new(seen_ids: set) -> list:
 
 def get_sg_new(seen_ids: set) -> list:
     """
-    Récupère les offres VIE Société Générale via l'API Algolia.
+    Récupère les offres VIE Société Générale via l'API sg-careers-offers.
     Stratégie :
-      1. Charger la page SocGen avec Playwright pour intercepter l'appel Algolia
-         (App ID, API key, nom d'index sont dans les headers HTTP).
-      2. Dès que les credentials sont capturés, appeler l'API Algolia directement
-         avec le filtre jobType:COOPERATIVE → JSON propre, pas de scraping DOM.
+      1. Charger la page avec Playwright et intercepter les RÉPONSES réseau.
+      2. Capturer le token depuis /sg-careers-offers/get-token (réponse JSON).
+      3. Capturer la réponse de l'appel de recherche qui suit.
+      4. Si le token est capturé mais pas les résultats, tenter des endpoints
+         courants avec requests (GET puis POST) en passant le token + cookies.
     """
     print("📡 Société Générale...", file=sys.stderr)
     if not PLAYWRIGHT_AVAILABLE:
         print("   Playwright absent — source ignorée.", file=sys.stderr)
         return []
 
-    new_offers = []
-    algolia_info: dict = {}
+    captured: dict = {}   # clés : "token", "search", "search_url"
 
-    # ── Étape 1 : intercepter les requêtes Algolia ────────────────────────────
+    # ── Étape 1 : Playwright — intercepter les réponses API ───────────────────
     try:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True)
@@ -295,57 +295,83 @@ def get_sg_new(seen_ids: set) -> list:
             if STEALTH_AVAILABLE:
                 stealth_sync(page)
 
-            def _on_request(req):
-                """
-                Capte les credentials Algolia.
-                Stratégie 1 : headers x-algolia-* (fonctionne même si SocGen
-                              proxifie Algolia via son propre domaine).
-                Stratégie 2 : URL contenant algolia.net / algolianet.com.
-                """
-                hdrs    = req.headers
-                app_id  = hdrs.get("x-algolia-application-id", "")
-                api_key = hdrs.get("x-algolia-api-key", "")
-
-                # Stratégie 1 — headers présents
-                if app_id:
-                    algolia_info["appId"]  = app_id
-                    algolia_info["apiKey"] = api_key
-                    m = re.search(r"/indexes/([^/?]+)", req.url)
-                    if m:
-                        algolia_info["indexName"] = urllib.parse.unquote(m.group(1))
-                    try:
-                        body = req.post_data
-                        if body:
-                            algolia_info["sampleBody"] = json.loads(body)
-                    except Exception:
-                        pass
+            def _on_response(resp):
+                url = resp.url
+                # On ne s'intéresse qu'à l'API SocGen
+                if "sg-careers-offers" not in url:
+                    return
+                try:
+                    status = resp.status
                     print(
-                        f"   Algolia (headers) : appId={app_id}, "
-                        f"index={algolia_info.get('indexName', '?')}",
+                        f"   [SG api] {resp.request.method} {url[:120]} → {status}",
                         file=sys.stderr,
                     )
+                    if status != 200:
+                        return
+                    data = resp.json()
+                except Exception:
                     return
 
-                # Stratégie 2 — URL directe vers Algolia (sans proxy)
-                url_lower = req.url.lower()
-                if "algolia.net" in url_lower or "algolianet.com" in url_lower:
-                    m = re.search(r"/indexes/([^/?]+)", req.url)
-                    if m and not algolia_info.get("indexName"):
-                        algolia_info["indexName"] = urllib.parse.unquote(m.group(1))
-                    dm = re.search(r"https?://([A-Z0-9]+)(?:-\d+)?\.algolia", req.url)
-                    if dm and not algolia_info.get("appId"):
-                        algolia_info["appId"]  = dm.group(1)
-                        algolia_info["apiKey"] = api_key
-                    print(f"   Algolia (URL) : {req.url[:80]}", file=sys.stderr)
+                # ── Endpoint token ────────────────────────────────────────────
+                if "get-token" in url:
+                    tok = None
+                    if isinstance(data, str) and len(data) > 10:
+                        tok = data
+                    elif isinstance(data, dict):
+                        for k in ("token", "access_token", "accessToken",
+                                  "jwt", "authToken", "value", "bearerToken"):
+                            if data.get(k):
+                                tok = data[k]
+                                break
+                        if not tok:
+                            print(
+                                f"   [SG debug] clés token response: {list(data.keys())}",
+                                file=sys.stderr,
+                            )
+                    if tok:
+                        captured["token"] = tok
+                        print(f"   ✅ Token capturé ({len(tok)} chars)", file=sys.stderr)
                     return
 
-                # Debug léger : log les appels XHR/fetch intéressants
-                if req.resource_type in ("xhr", "fetch"):
-                    u = req.url
-                    if any(k in u for k in ("search", "jobs", "offers", "careers", "query")):
-                        print(f"   [SG debug] {req.method} {u[:100]}", file=sys.stderr)
+                # ── Tout autre endpoint sg-careers-offers : tenter d'extraire les offres ──
+                if "search" in captured:
+                    return  # Déjà capturé
+                if isinstance(data, dict):
+                    print(
+                        f"   [SG debug] {url.split('/')[-1].split('?')[0]} "
+                        f"clés: {list(data.keys())[:12]}",
+                        file=sys.stderr,
+                    )
+                    for key in ("hits", "results", "offers", "jobs", "data",
+                                "items", "content", "jobOffers", "jobList"):
+                        val = data.get(key)
+                        if isinstance(val, list) and val:
+                            captured["search"] = val
+                            captured["search_url"] = url
+                            print(
+                                f"   ✅ {len(val)} offres trouvées (clé '{key}')",
+                                file=sys.stderr,
+                            )
+                            return
+                    # Pagination type Spring/REST : totalElements + embedded
+                    for k in ("_embedded", "embedded"):
+                        emb = data.get(k)
+                        if isinstance(emb, dict):
+                            for sub in emb.values():
+                                if isinstance(sub, list) and sub:
+                                    captured["search"] = sub
+                                    captured["search_url"] = url
+                                    print(
+                                        f"   ✅ {len(sub)} offres (embedded '{k}')",
+                                        file=sys.stderr,
+                                    )
+                                    return
+                elif isinstance(data, list) and data:
+                    captured["search"] = data
+                    captured["search_url"] = url
+                    print(f"   ✅ {len(data)} offres (liste directe)", file=sys.stderr)
 
-            page.on("request", _on_request)
+            page.on("response", _on_response)
 
             print(f"   Chargement de {SG_URL} ...", file=sys.stderr)
             page.goto(SG_URL, wait_until="domcontentloaded", timeout=60_000)
@@ -372,99 +398,205 @@ def get_sg_new(seen_ids: set) -> list:
                 except Exception:
                     continue
 
-            # Recharger après cookies pour déclencher Algolia
-            if cookie_accepted or not algolia_info.get("appId"):
-                print("   Rechargement pour déclencher Algolia...", file=sys.stderr)
+            # Rechargement si cookies acceptés ou si rien capturé
+            if cookie_accepted or "search" not in captured:
+                print("   Rechargement pour déclencher l'API...", file=sys.stderr)
                 page.goto(SG_URL, wait_until="domcontentloaded", timeout=60_000)
-                page.wait_for_timeout(8_000)
+                page.wait_for_timeout(10_000)
+
+            # ── Étape 2 : si token capturé mais pas les résultats → appel direct ──
+            if "token" in captured and "search" not in captured:
+                print(
+                    "   Token capturé mais pas de résultats — tentative appel API direct...",
+                    file=sys.stderr,
+                )
+                browser_cookies = {c["name"]: c["value"] for c in ctx.cookies()}
+                token = captured["token"]
+                api_hdrs = {
+                    "Authorization":    f"Bearer {token}",
+                    "Accept":           "application/json",
+                    "Content-Type":     "application/json",
+                    "User-Agent":       HTTP_HEADERS["User-Agent"],
+                    "Referer":          SG_URL,
+                    "Origin":           SG_BASE,
+                    "X-Requested-With": "XMLHttpRequest",
+                }
+
+                # GET avec query params
+                get_endpoints = [
+                    ("/sg-careers-offers/search",
+                     {"jobType": "COOPERATIVE", "size": 200, "page": 0}),
+                    ("/sg-careers-offers/offers",
+                     {"jobType": "COOPERATIVE", "size": 200}),
+                    ("/sg-careers-offers/jobs",
+                     {"jobType": "COOPERATIVE", "size": 200}),
+                    ("/sg-careers-offers/get-offers",
+                     {"jobType": "COOPERATIVE", "size": 200}),
+                    ("/sg-careers-offers/cooperative",
+                     {"size": 200}),
+                ]
+                for ep_path, params in get_endpoints:
+                    ep = SG_BASE + ep_path
+                    try:
+                        r = requests.get(
+                            ep, headers=api_hdrs, params=params,
+                            cookies=browser_cookies, timeout=20,
+                        )
+                        print(
+                            f"   [SG debug] GET {ep_path} → {r.status_code}",
+                            file=sys.stderr,
+                        )
+                        if r.status_code == 200:
+                            d = r.json()
+                            _extract_search(d, captured, ep)
+                            if "search" in captured:
+                                break
+                    except Exception as e:
+                        print(f"   [SG debug] GET {ep_path}: {e}", file=sys.stderr)
+
+                # POST si GET n'a rien donné
+                if "search" not in captured:
+                    post_endpoints = [
+                        ("/sg-careers-offers/search",
+                         {"jobType": "COOPERATIVE", "size": 200, "page": 0}),
+                        ("/sg-careers-offers/query",
+                         {"jobType": "COOPERATIVE", "limit": 200}),
+                    ]
+                    for ep_path, body in post_endpoints:
+                        ep = SG_BASE + ep_path
+                        try:
+                            r = requests.post(
+                                ep, json=body, headers=api_hdrs,
+                                cookies=browser_cookies, timeout=20,
+                            )
+                            print(
+                                f"   [SG debug] POST {ep_path} → {r.status_code}",
+                                file=sys.stderr,
+                            )
+                            if r.status_code == 200:
+                                d = r.json()
+                                _extract_search(d, captured, ep)
+                                if "search" in captured:
+                                    break
+                        except Exception as e:
+                            print(f"   [SG debug] POST {ep_path}: {e}", file=sys.stderr)
 
             browser.close()
 
     except Exception as exc:
         print(f"[SG erreur Playwright] {exc}", file=sys.stderr)
 
-    # ── Étape 2 : appel direct à l'API Algolia ────────────────────────────────
-    if not algolia_info.get("appId") or not algolia_info.get("indexName"):
+    # ── Étape 3 : parser les offres capturées ─────────────────────────────────
+    if "search" not in captured:
         print(
-            "[SG] Impossible de récupérer les credentials Algolia — source ignorée.",
+            "[SG] Impossible de récupérer les offres SG — source ignorée.",
             file=sys.stderr,
         )
         print("   0 nouvelle(s) offre(s) SG.", file=sys.stderr)
         return []
 
-    app_id     = algolia_info["appId"]
-    api_key    = algolia_info["apiKey"]
-    index_name = algolia_info["indexName"]
-
-    try:
-        url = (
-            f"https://{app_id}-dsn.algolia.net"
-            f"/1/indexes/{urllib.parse.quote(index_name, safe='')}/query"
+    items = captured["search"]
+    print(f"   Parsing de {len(items)} offres...", file=sys.stderr)
+    if items and isinstance(items[0], dict):
+        print(
+            f"   [SG debug] clés offre: {list(items[0].keys())[:15]}",
+            file=sys.stderr,
         )
-        headers = {
-            "X-Algolia-Application-Id": app_id,
-            "X-Algolia-API-Key":        api_key,
-            "Content-Type":             "application/json",
-        }
-        body = {
-            "facetFilters": [["jobType:COOPERATIVE"]],
-            "hitsPerPage":  200,
-            "page":         0,
-        }
-        resp = requests.post(url, json=body, headers=headers, timeout=30)
-        if resp.status_code != 200:
-            body = {"filters": "jobType:COOPERATIVE", "hitsPerPage": 200, "page": 0}
-            resp = requests.post(url, json=body, headers=headers, timeout=30)
-        resp.raise_for_status()
 
-        hits = resp.json().get("hits", [])
-        print(f"   {len(hits)} offres COOPERATIVE via API Algolia.", file=sys.stderr)
+    new_offers = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
 
-        for hit in hits:
-            title = (
-                hit.get("title")
-                or hit.get("jobTitle")
-                or hit.get("name")
-                or hit.get("label")
-                or ""
-            ).strip()
-            if not title:
-                continue
+        # Filtrer par type COOPERATIVE (VIE) si le champ est présent
+        job_type = (
+            item.get("jobType") or item.get("type") or item.get("contractType") or ""
+        ).upper()
+        if job_type and "COOPERATIVE" not in job_type and "VIE" not in job_type:
+            continue
 
-            href = (hit.get("url") or hit.get("link") or hit.get("applyUrl") or "").strip()
-            if href and not href.startswith("http"):
-                href = SG_BASE + href
-            if not href:
-                obj_id = hit.get("objectID", "")
-                if obj_id:
-                    href = f"{SG_BASE}/en/offer/{obj_id}"
+        title = (
+            item.get("title") or item.get("jobTitle") or item.get("name")
+            or item.get("label") or item.get("offerTitle") or ""
+        ).strip()
+        if not title:
+            continue
 
-            location = (
-                hit.get("location")
-                or hit.get("city")
-                or hit.get("country")
-                or hit.get("place")
-                or ""
-            ).strip()
+        # URL de l'offre
+        href = (
+            item.get("url") or item.get("link") or item.get("applyUrl")
+            or item.get("jobUrl") or item.get("offerUrl") or ""
+        ).strip()
+        if href and not href.startswith("http"):
+            href = SG_BASE + href
+        if not href:
+            oid = (
+                item.get("id") or item.get("objectID") or item.get("jobId")
+                or item.get("reference") or item.get("offerId")
+            )
+            if oid:
+                href = f"{SG_BASE}/en/offer/{oid}"
 
-            uid = f"sg_{hit.get('objectID', hashlib.md5(title.encode()).hexdigest()[:12])}"
+        # Localisation
+        location = (
+            item.get("location") or item.get("city") or item.get("country")
+            or item.get("place") or item.get("locationLabel") or item.get("jobLocation") or ""
+        ).strip()
 
-            if uid not in seen_ids:
-                new_offers.append({
-                    "uid":      uid,
-                    "title":    title,
-                    "company":  "Société Générale",
-                    "location": location,
-                    "url":      href or SG_URL,
-                    "source":   "Société Générale",
-                    "color":    SG_COLOR,
-                })
+        # UID unique
+        oid = (
+            item.get("id") or item.get("objectID") or item.get("jobId")
+            or item.get("reference") or item.get("offerId")
+        )
+        uid = f"sg_{oid}" if oid else f"sg_{hashlib.md5(title.encode()).hexdigest()[:12]}"
 
-    except Exception as exc:
-        print(f"[SG erreur API Algolia] {exc}", file=sys.stderr)
+        if uid not in seen_ids:
+            new_offers.append({
+                "uid":      uid,
+                "title":    title,
+                "company":  "Société Générale",
+                "location": location,
+                "url":      href or SG_URL,
+                "source":   "Société Générale",
+                "color":    SG_COLOR,
+            })
 
     print(f"   {len(new_offers)} nouvelle(s) offre(s) SG.", file=sys.stderr)
     return new_offers
+
+
+def _extract_search(data, captured: dict, url: str):
+    """Tente d'extraire une liste d'offres depuis une réponse JSON API."""
+    if isinstance(data, dict):
+        print(f"   [SG debug] clés: {list(data.keys())[:12]}", file=sys.stderr)
+        for key in ("hits", "results", "offers", "jobs", "data",
+                    "items", "content", "jobOffers", "jobList"):
+            val = data.get(key)
+            if isinstance(val, list) and val:
+                captured["search"] = val
+                captured["search_url"] = url
+                print(
+                    f"   ✅ {len(val)} offres via API direct (clé '{key}')",
+                    file=sys.stderr,
+                )
+                return
+        # Pattern _embedded (HAL/Spring)
+        for k in ("_embedded", "embedded"):
+            emb = data.get(k)
+            if isinstance(emb, dict):
+                for sub in emb.values():
+                    if isinstance(sub, list) and sub:
+                        captured["search"] = sub
+                        captured["search_url"] = url
+                        print(
+                            f"   ✅ {len(sub)} offres via embedded",
+                            file=sys.stderr,
+                        )
+                        return
+    elif isinstance(data, list) and data:
+        captured["search"] = data
+        captured["search_url"] = url
+        print(f"   ✅ {len(data)} offres (liste directe)", file=sys.stderr)
 
 
 # ── Email ──────────────────────────────────────────────────────────────────────
@@ -569,28 +701,32 @@ def main():
     validate_env()
     seen_ids = load_seen()
 
-    counts           = {"Business France": 0, "BNP Paribas": 0, "Société Générale": 0}
-    all_new          = []
+    counts      = {"Business France": 0, "BNP Paribas": 0, "Société Générale": 0}
+    all_new     = []
     all_seen_to_save = set(seen_ids)
 
+    # ── Business France
     bf_new = get_bf_new(seen_ids)
     counts["Business France"] = len(bf_new)
     all_new.extend(bf_new)
     for o in bf_new:
         all_seen_to_save.add(o["uid"])
 
+    # ── BNP Paribas
     bnp_new = get_bnp_new(seen_ids)
     counts["BNP Paribas"] = len(bnp_new)
     all_new.extend(bnp_new)
     for o in bnp_new:
         all_seen_to_save.add(o["uid"])
 
+    # ── Société Générale
     sg_new = get_sg_new(seen_ids)
     counts["Société Générale"] = len(sg_new)
     all_new.extend(sg_new)
     for o in sg_new:
         all_seen_to_save.add(o["uid"])
 
+    # ── Bilan
     total = len(all_new)
     print(f"\n📊 Total nouvelles offres : {total}", file=sys.stderr)
     for src, cnt in counts.items():
