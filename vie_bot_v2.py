@@ -11,15 +11,17 @@ Variables d'environnement requises (GitHub Secrets) :
   RECIPIENT      -> adresse de réception (facultatif, défaut = GMAIL_ADDRESS)
 
 Dépendances :
-  pip install requests beautifulsoup4 playwright
+  pip install requests beautifulsoup4 playwright playwright-stealth
   playwright install chromium
 """
 
 import hashlib
 import json
 import os
+import re
 import smtplib
 import sys
+import urllib.parse
 from datetime import date, datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -32,7 +34,14 @@ try:
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
-    print("⚠️ Playwright non installé — Société Générale sera ignorée.", file=sys.stderr)
+    print("⚠️ Playwright non installé — BNP/SocGen seront ignorées.", file=sys.stderr)
+
+try:
+    from playwright_stealth import stealth_sync
+    STEALTH_AVAILABLE = True
+except ImportError:
+    STEALTH_AVAILABLE = False
+    print("⚠️ playwright-stealth absent — scraping sans anti-détection.", file=sys.stderr)
 
 
 # ── Configuration ──────────────────────────────────────────────────────────────
@@ -238,11 +247,10 @@ def get_bf_new(seen_ids: set) -> list:
 
 def get_bnp_new(seen_ids: set) -> list:
     """
-    Scrape les offres VIE sur le site BNP Paribas via Playwright (headless).
-    Le site retourne 403 aux requêtes HTTP simples (WAF) — Playwright contourne
-    ce blocage car il présente un vrai fingerprint navigateur.
-    Sélecteur : article[class*='card-offer']
-    Pagination : ?page=N
+    Scrape les offres VIE BNP via Playwright + playwright-stealth.
+    BNP utilise Akamai Bot Manager : playwright-stealth masque navigator.webdriver
+    et tous les indicateurs de navigation automatisée.
+    Sélecteur : article[class*='card-offer']   /   Pagination : ?page=N
     """
     print("📡 BNP Paribas...", file=sys.stderr)
     if not PLAYWRIGHT_AVAILABLE:
@@ -253,8 +261,14 @@ def get_bnp_new(seen_ids: set) -> list:
 
     try:
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True)
-            ctx     = browser.new_context(user_agent=HTTP_HEADERS["User-Agent"])
+            browser = pw.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            ctx = browser.new_context(
+                user_agent=HTTP_HEADERS["User-Agent"],
+                extra_http_headers={"Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8"},
+            )
             page_num = 1
 
             while True:
@@ -263,35 +277,60 @@ def get_bnp_new(seen_ids: set) -> list:
 
                 try:
                     pw_page = ctx.new_page()
-                    pw_page.goto(url, wait_until="domcontentloaded", timeout=45_000)
-                    pw_page.wait_for_timeout(2_000)  # laisser le JS s'initialiser
 
-                    # Accepter éventuellement la bannière cookies
+                    # Anti-détection Akamai
+                    if STEALTH_AVAILABLE:
+                        stealth_sync(pw_page)
+                    else:
+                        pw_page.add_init_script(
+                            "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
+                            "window.chrome={runtime:{}};"
+                        )
+
+                    pw_page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+
+                    # Accepter la bannière Tarteaucitron si présente
                     for ck_sel in [
+                        "#tarteaucitronPersonalize2",
+                        "button:has-text('Tout accepter')",
+                        "button:has-text('Accepter tout')",
                         "button:has-text('Accepter')",
                         "button:has-text('Accept')",
-                        "button:has-text('Tout accepter')",
-                        "#tarteaucitronPersonalize2",
                     ]:
                         try:
                             btn = pw_page.wait_for_selector(ck_sel, timeout=3_000)
                             if btn:
                                 btn.click()
-                                pw_page.wait_for_timeout(1_000)
+                                print("   BNP cookies acceptés.", file=sys.stderr)
+                                pw_page.wait_for_timeout(1_500)
                                 break
                         except Exception:
                             continue
 
+                    # Attendre explicitement les cartes d'offres
+                    try:
+                        pw_page.wait_for_selector(
+                            "article[class*='card-offer']", timeout=12_000
+                        )
+                    except Exception:
+                        pass
+
                     html = pw_page.content()
                     pw_page.close()
+
                 except Exception as exc:
                     print(f"[BNP erreur page={page_num}] {exc}", file=sys.stderr)
                     break
 
                 soup  = BeautifulSoup(html, "html.parser")
                 cards = soup.find_all("article", class_=lambda c: c and "card-offer" in c)
+
                 if not cards:
-                    print(f"[BNP] Aucune offre trouvée page {page_num}, arrêt.", file=sys.stderr)
+                    excerpt = BeautifulSoup(html, "html.parser").get_text()[:300].strip()
+                    print(
+                        f"[BNP] Aucune offre page {page_num}. Début de page :\n{excerpt}",
+                        file=sys.stderr,
+                    )
                     break
 
                 print(f"   {len(cards)} offres trouvées page {page_num}.", file=sys.stderr)
@@ -321,7 +360,6 @@ def get_bnp_new(seen_ids: set) -> list:
                             "color":    BNP_COLOR,
                         })
 
-                # Vérifier s'il existe une page suivante
                 next_link = soup.find("a", attrs={"data-to": str(page_num + 1)})
                 if not next_link:
                     break
@@ -338,37 +376,14 @@ def get_bnp_new(seen_ids: set) -> list:
 
 # ── Source 3 : Société Générale ────────────────────────────────────────────────
 
-# Sélecteurs Algolia InstantSearch / React à tester dans l'ordre
-SG_CARD_SELECTORS = [
-    "[class*='ais-InfiniteHits-item']",
-    "[class*='ais-Hits-item']",
-    "[class*='hit--']",
-    "[class*='job-card']",
-    "[class*='jobCard']",
-    "[class*='JobCard']",
-    "article[class*='job']",
-    "li[class*='job']",
-    "[data-job-id]",
-    "[class*='offer-card']",
-]
-
-SG_TITLE_SELECTORS = [
-    "h2", "h3",
-    "[class*='title']", "[class*='Title']",
-    "[class*='name']",  "[class*='Name']",
-]
-
-SG_LOCATION_SELECTORS = [
-    "[class*='location']", "[class*='Location']",
-    "[class*='place']",    "[class*='city']",
-    "[class*='country']",
-]
-
-
 def get_sg_new(seen_ids: set) -> list:
     """
-    Scrape les offres VIE Société Générale (SPA React + Algolia InstantSearch).
-    Nécessite Playwright + Chromium.
+    Récupère les offres VIE Société Générale via l'API Algolia.
+    Stratégie :
+      1. Charger la page SocGen avec Playwright pour intercepter l'appel Algolia
+         (App ID, API key, nom d'index sont dans les headers HTTP).
+      2. Dès que les credentials sont capturés, appeler l'API Algolia directement
+         avec le filtre jobType:COOPERATIVE → JSON propre, pas de scraping DOM.
     """
     print("📡 Société Générale...", file=sys.stderr)
     if not PLAYWRIGHT_AVAILABLE:
@@ -376,32 +391,63 @@ def get_sg_new(seen_ids: set) -> list:
         return []
 
     new_offers = []
+    algolia_info: dict = {}
 
+    # ── Étape 1 : intercepter les requêtes Algolia ────────────────────────────
     try:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True)
-            ctx     = browser.new_context(user_agent=HTTP_HEADERS["User-Agent"])
-            page    = ctx.new_page()
+            ctx  = browser.new_context(user_agent=HTTP_HEADERS["User-Agent"])
+            page = ctx.new_page()
+
+            if STEALTH_AVAILABLE:
+                stealth_sync(page)
+
+            def _on_request(req):
+                """Capte les credentials Algolia depuis les headers des requêtes."""
+                if "algolia" not in req.url:
+                    return
+                hdrs = req.headers
+                app_id = hdrs.get("x-algolia-application-id", "")
+                api_key = hdrs.get("x-algolia-api-key", "")
+                if not app_id:
+                    return
+                algolia_info["appId"]  = app_id
+                algolia_info["apiKey"] = api_key
+                m = re.search(r"/indexes/([^/?]+)", req.url)
+                if m:
+                    algolia_info["indexName"] = urllib.parse.unquote(m.group(1))
+                # Capture aussi le corps pour connaître les noms de champs
+                try:
+                    body = req.post_data
+                    if body:
+                        algolia_info["sampleBody"] = json.loads(body)
+                except Exception:
+                    pass
+                print(
+                    f"   Algolia intercepté : appId={app_id}, "
+                    f"index={algolia_info.get('indexName', '?')}",
+                    file=sys.stderr,
+                )
+
+            page.on("request", _on_request)
 
             print(f"   Chargement de {SG_URL} ...", file=sys.stderr)
             page.goto(SG_URL, wait_until="domcontentloaded", timeout=60_000)
             page.wait_for_timeout(3_000)
 
-            # Accepter la bannière cookies si elle est présente
-            cookie_selectors = [
+            # Accepter la bannière cookies
+            cookie_accepted = False
+            for ck_sel in [
                 "button:has-text('Accept all')",
                 "button:has-text('Tout accepter')",
                 "button:has-text('Accept All')",
                 "button:has-text('Accepter tout')",
                 "button:has-text('Accepter')",
                 "button:has-text('Accept')",
-                "[id*='accept']:has-text('accept')",
-                "[class*='accept']:has-text('accept')",
-            ]
-            cookie_accepted = False
-            for cookie_sel in cookie_selectors:
+            ]:
                 try:
-                    btn = page.wait_for_selector(cookie_sel, timeout=4_000)
+                    btn = page.wait_for_selector(ck_sel, timeout=4_000)
                     if btn:
                         btn.click()
                         print("   Bannière cookies acceptée.", file=sys.stderr)
@@ -411,93 +457,100 @@ def get_sg_new(seen_ids: set) -> list:
                 except Exception:
                     continue
 
-            # Si la bannière cookies a provoqué une navigation vers la homepage,
-            # recharger l'URL de recherche des VIE
-            if cookie_accepted:
-                print(f"   Rechargement de {SG_URL} après cookies...", file=sys.stderr)
+            # Recharger la page de recherche après cookies pour que
+            # les résultats Algolia se déclenchent
+            if cookie_accepted or not algolia_info.get("appId"):
+                print("   Rechargement pour déclencher Algolia...", file=sys.stderr)
                 page.goto(SG_URL, wait_until="domcontentloaded", timeout=60_000)
-                page.wait_for_timeout(5_000)
-
-            # Attendre que les résultats Algolia se chargent
-            try:
-                page.wait_for_load_state("networkidle", timeout=20_000)
-            except Exception:
-                pass
-            page.wait_for_timeout(3_000)
-
-            # Trouver le bon sélecteur de carte
-            found_selector = None
-            for sel in SG_CARD_SELECTORS:
-                try:
-                    page.wait_for_selector(sel, timeout=4_000)
-                    count = len(page.query_selector_all(sel))
-                    if count > 0:
-                        found_selector = sel
-                        print(f"   Sélecteur retenu : '{sel}' ({count} éléments)", file=sys.stderr)
-                        break
-                except Exception:
-                    continue
-
-            if not found_selector:
-                # Fallback : dump les 500 premiers chars du body pour debug
-                body_excerpt = (page.inner_text("body") or "")[:500]
-                print(f"[SG] Aucun sélecteur trouvé. Extrait de page :\n{body_excerpt}", file=sys.stderr)
-                browser.close()
-                return []
-
-            cards = page.query_selector_all(found_selector)
-
-            for card in cards:
-                # Titre
-                title = ""
-                for sel in SG_TITLE_SELECTORS:
-                    el = card.query_selector(sel)
-                    if el:
-                        title = (el.inner_text() or "").strip()
-                        if title:
-                            break
-                if not title:
-                    continue
-
-                # Lien
-                href = ""
-                link_el = card.query_selector("a[href]")
-                if link_el:
-                    href = link_el.get_attribute("href") or ""
-                    if href and not href.startswith("http"):
-                        href = SG_BASE + href
-
-                # Localisation
-                location = ""
-                for sel in SG_LOCATION_SELECTORS:
-                    el = card.query_selector(sel)
-                    if el:
-                        location = (el.inner_text() or "").strip()
-                        if location:
-                            break
-
-                # UID
-                if href:
-                    slug = href.rstrip("/").split("/")[-1]
-                    uid  = f"sg_{slug}"
-                else:
-                    uid = f"sg_{hashlib.md5(title.encode()).hexdigest()[:12]}"
-
-                if uid not in seen_ids:
-                    new_offers.append({
-                        "uid":      uid,
-                        "title":    title,
-                        "company":  "Société Générale",
-                        "location": location,
-                        "url":      href or SG_URL,
-                        "source":   "Société Générale",
-                        "color":    SG_COLOR,
-                    })
+                page.wait_for_timeout(8_000)
 
             browser.close()
 
     except Exception as exc:
-        print(f"[SG erreur] {exc}", file=sys.stderr)
+        print(f"[SG erreur Playwright] {exc}", file=sys.stderr)
+
+    # ── Étape 2 : appel direct à l'API Algolia ────────────────────────────────
+    if not algolia_info.get("appId") or not algolia_info.get("indexName"):
+        print(
+            "[SG] Impossible de récupérer les credentials Algolia — source ignorée.",
+            file=sys.stderr,
+        )
+        print("   0 nouvelle(s) offre(s) SG.", file=sys.stderr)
+        return []
+
+    app_id     = algolia_info["appId"]
+    api_key    = algolia_info["apiKey"]
+    index_name = algolia_info["indexName"]
+
+    try:
+        url = (
+            f"https://{app_id}-dsn.algolia.net"
+            f"/1/indexes/{urllib.parse.quote(index_name, safe='')}/query"
+        )
+        headers = {
+            "X-Algolia-Application-Id": app_id,
+            "X-Algolia-API-Key":        api_key,
+            "Content-Type":             "application/json",
+        }
+        # Essaie d'abord avec facetFilters (format standard Algolia InstantSearch)
+        body = {
+            "facetFilters": [["jobType:COOPERATIVE"]],
+            "hitsPerPage":  200,
+            "page":         0,
+        }
+        resp = requests.post(url, json=body, headers=headers, timeout=30)
+        if resp.status_code != 200:
+            # Fallback : filters string
+            body["filters"] = "jobType:COOPERATIVE"
+            del body["facetFilters"]
+            resp = requests.post(url, json=body, headers=headers, timeout=30)
+        resp.raise_for_status()
+
+        hits = resp.json().get("hits", [])
+        print(f"   {len(hits)} offres COOPERATIVE via API Algolia.", file=sys.stderr)
+
+        for hit in hits:
+            title = (
+                hit.get("title")
+                or hit.get("jobTitle")
+                or hit.get("name")
+                or hit.get("label")
+                or ""
+            ).strip()
+            if not title:
+                continue
+
+            href = (hit.get("url") or hit.get("link") or hit.get("applyUrl") or "").strip()
+            if href and not href.startswith("http"):
+                href = SG_BASE + href
+            if not href:
+                obj_id = hit.get("objectID", "")
+                if obj_id:
+                    href = f"{SG_BASE}/en/offer/{obj_id}"
+
+            location = (
+                hit.get("location")
+                or hit.get("city")
+                or hit.get("country")
+                or hit.get("place")
+                or ""
+            ).strip()
+
+            uid = f"sg_{hit.get('objectID', hashlib.md5(title.encode()).hexdigest()[:12])}"
+
+            if uid not in seen_ids:
+                new_offers.append({
+                    "uid":      uid,
+                    "title":    title,
+                    "company":  "Société Générale",
+                    "location": location,
+                    "url":      href or SG_URL,
+                    "source":   "Société Générale",
+                    "color":    SG_COLOR,
+                })
+
+    except Exception as exc:
+        print(f"[SG erreur API Algolia] {exc}", file=sys.stderr)
 
     print(f"   {len(new_offers)} nouvelle(s) offre(s) SG.", file=sys.stderr)
     return new_offers
