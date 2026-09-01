@@ -21,6 +21,7 @@ import os
 import re
 import smtplib
 import sys
+import time
 import urllib.parse
 from datetime import date, datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
@@ -49,11 +50,13 @@ except ImportError:
 # Business France
 BF_API_URL    = "https://civiweb-api-prd.azurewebsites.net/api/Offers/search"
 BF_OFFER_BASE = "https://mon-vie-via.businessfrance.fr/offres"
+BF_SITE       = "https://mon-vie-via.businessfrance.fr"
 BF_SEARCH_URL = (
     "https://mon-vie-via.businessfrance.fr/offres/recherche"
     "?query&specializationsIds=19&geographicZones=2"
     "&geographicZones=3&geographicZones=4&teletravail=0&porteEnv=0"
 )
+
 BF_PAYLOAD = {
     "query": None,
     "specializationsIds": ["19"],        # Finance / Comptabilité / Gestion / Banque
@@ -85,15 +88,19 @@ LOOKBACK_DAYS = 14
 SEEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seen_offers.json")
 
 GMAIL_ADDRESS = os.environ.get("GMAIL_ADDRESS", "").strip()
-GMAIL_PASSWORD = os.environ.get("GMAIL_PASSWORD", "").strip()
+# On retire aussi les espaces internes : Google affiche le mot de passe
+# d'application en 4 groupes de 4, et ils sont souvent copiés avec les espaces.
+GMAIL_PASSWORD = os.environ.get("GMAIL_PASSWORD", "").replace(" ", "").replace("-", "").strip()
 RECIPIENT     = os.environ.get("RECIPIENT", GMAIL_ADDRESS).strip()
 
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/140.0.0.0 Safari/537.36"
+)
+
 HTTP_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": USER_AGENT,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
     "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
     "Accept-Encoding": "gzip, deflate, br",
@@ -103,6 +110,23 @@ HTTP_HEADERS = {
     "Sec-Fetch-Mode": "navigate",
     "Sec-Fetch-Site": "none",
     "Sec-Fetch-User": "?1",
+}
+
+# ⚠️ CORRECTIF PRINCIPAL
+# L'API Business France renvoie 401 quand la requête ne ressemble pas à un appel
+# XHR émis par le site lui-même. Ces en-têtes reproduisent exactement ceux que le
+# navigateur envoie depuis mon-vie-via.businessfrance.fr.
+BF_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Content-Type": "application/json",
+    "Origin": BF_SITE,
+    "Referer": BF_SITE + "/",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "cross-site",
+    "Connection": "keep-alive",
 }
 
 
@@ -117,8 +141,8 @@ def validate_env():
         raise RuntimeError("Le secret RECIPIENT est absent ou vide.")
     if len(GMAIL_PASSWORD) != 16:
         print(
-            "⚠️ Vérifie GMAIL_PASSWORD : un mot de passe d'application Gmail "
-            "fait normalement 16 caractères.",
+            f"⚠️ GMAIL_PASSWORD fait {len(GMAIL_PASSWORD)} caractères après nettoyage "
+            "(espaces et tirets retirés) ; un mot de passe d'application Gmail en fait 16.",
             file=sys.stderr,
         )
 
@@ -150,6 +174,7 @@ def send_email(subject: str, html_body: str):
     msg["From"]    = GMAIL_ADDRESS
     msg["To"]      = RECIPIENT
     msg.attach(MIMEText(html_body, "html", "utf-8"))
+
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(GMAIL_ADDRESS, GMAIL_PASSWORD)
@@ -164,29 +189,69 @@ def send_email(subject: str, html_body: str):
 
 # ── Source 1 : Business France ─────────────────────────────────────────────────
 
+def _bf_session() -> requests.Session:
+    """
+    Session pré-chauffée : on visite d'abord le site pour récupérer les cookies
+    éventuels, ce qui rend l'appel API indiscernable d'un appel navigateur.
+    """
+    s = requests.Session()
+    s.headers.update(BF_HEADERS)
+    try:
+        s.get(BF_SEARCH_URL, headers=HTTP_HEADERS, timeout=20)
+    except requests.RequestException as exc:
+        print(f"   [BF warn] préchauffage session impossible : {exc}", file=sys.stderr)
+    return s
+
+
 def fetch_bf_all():
     all_offers, skip = [], 0
+    session = _bf_session()
+
     while True:
-        try:
-            resp = requests.post(
-                BF_API_URL,
-                json={**BF_PAYLOAD, "skip": skip},
-                timeout=30,
-            )
-            resp.raise_for_status()
-        except requests.RequestException as exc:
-            print(f"[BF erreur skip={skip}] {exc}", file=sys.stderr)
-            break
+        resp = None
+        # 3 tentatives : l'API renvoie parfois un 401/403 transitoire.
+        for attempt in range(3):
+            try:
+                resp = session.post(
+                    BF_API_URL,
+                    json={**BF_PAYLOAD, "skip": skip},
+                    timeout=30,
+                )
+                if resp.status_code in (401, 403, 429) and attempt < 2:
+                    print(
+                        f"   [BF retry {attempt + 1}/3] statut {resp.status_code} "
+                        f"sur skip={skip}",
+                        file=sys.stderr,
+                    )
+                    time.sleep(3 * (attempt + 1))
+                    continue
+                resp.raise_for_status()
+                break
+            except requests.RequestException as exc:
+                if attempt == 2:
+                    print(f"[BF erreur skip={skip}] {exc}", file=sys.stderr)
+                    return all_offers
+                time.sleep(3 * (attempt + 1))
+        else:
+            return all_offers
+
+        if resp is None:
+            return all_offers
+
         data    = resp.json()
         total   = data.get("count", 0)
         results = data.get("result", [])
-        seen    = {str(o.get("id")) for o in all_offers if o.get("id") is not None}
+
+        seen = {str(o.get("id")) for o in all_offers if o.get("id") is not None}
         for o in results:
             if o.get("id") is not None and str(o["id"]) not in seen:
                 all_offers.append(o)
+
         if len(all_offers) >= total or len(results) < BF_PAYLOAD["limit"]:
             break
+
         skip += BF_PAYLOAD["limit"]
+
     return all_offers
 
 
@@ -209,8 +274,10 @@ def fmt_bf_offer(offer: dict) -> dict:
         )
     except ValueError:
         start_str = start[:7] if start else "Non précisé"
+
     ind     = offer.get("indemnite")
-    ind_str = f"{ind:,.0f} €/mois".replace(",", "\u202f") if ind else "Non précisée"
+    ind_str = f"{ind:,.0f} €/mois".replace(",", " ") if ind else "Non précisée"
+
     return {
         "uid":       str(oid),
         "title":     offer.get("missionTitle", "Sans titre"),
@@ -230,11 +297,25 @@ def get_bf_new(seen_ids: set) -> list:
     try:
         all_offers = fetch_bf_all()
         print(f"   {len(all_offers)} offres récupérées.", file=sys.stderr)
+
+        if not all_offers:
+            print(
+                "   ⚠️ Aucune offre récupérée — vérifie les logs ci-dessus "
+                "(401 = en-têtes refusés, timeout = réseau).",
+                file=sys.stderr,
+            )
+            return []
+
         cutoff = datetime.now(timezone.utc).date() - timedelta(days=LOOKBACK_DAYS - 1)
         recent = [
             o for o in all_offers
             if (_parse_bf_date(o.get("startBroadcastDate")) or date.min) >= cutoff
         ]
+        print(
+            f"   {len(recent)} offre(s) diffusée(s) sur les {LOOKBACK_DAYS} derniers jours.",
+            file=sys.stderr,
+        )
+
         new = [o for o in recent if str(o.get("id")) not in seen_ids]
         print(f"   {len(new)} nouvelle(s) offre(s).", file=sys.stderr)
         return [fmt_bf_offer(o) for o in new]
@@ -248,7 +329,7 @@ def get_bf_new(seen_ids: set) -> list:
 def get_bnp_new(seen_ids: set) -> list:
     """
     BNP Paribas utilise Akamai EdgeSuite qui bloque systématiquement les plages
-    IP des serveurs GitHub Actions (Microsoft Azure).  Ce blocage est décidé côté
+    IP des serveurs GitHub Actions (Microsoft Azure). Ce blocage est décidé côté
     réseau avant même l'évaluation du fingerprint navigateur — aucun contournement
     logiciel n'est possible depuis GitHub Actions.
 
@@ -271,6 +352,7 @@ def get_bnp_new(seen_ids: set) -> list:
 def get_sg_new(seen_ids: set) -> list:
     """
     Récupère les offres VIE Société Générale via l'API sg-careers-offers.
+
     Stratégie :
       1. Charger la page avec Playwright et intercepter les RÉPONSES réseau.
       2. Capturer le token depuis /sg-careers-offers/get-token (réponse JSON).
@@ -279,6 +361,7 @@ def get_sg_new(seen_ids: set) -> list:
          courants avec requests (GET puis POST) en passant le token + cookies.
     """
     print("📡 Société Générale...", file=sys.stderr)
+
     if not PLAYWRIGHT_AVAILABLE:
         print("   Playwright absent — source ignorée.", file=sys.stderr)
         return []
@@ -289,7 +372,7 @@ def get_sg_new(seen_ids: set) -> list:
     try:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True)
-            ctx  = browser.new_context(user_agent=HTTP_HEADERS["User-Agent"])
+            ctx  = browser.new_context(user_agent=USER_AGENT)
             page = ctx.new_page()
 
             if STEALTH_AVAILABLE:
@@ -297,7 +380,6 @@ def get_sg_new(seen_ids: set) -> list:
 
             def _on_response(resp):
                 url = resp.url
-                # On ne s'intéresse qu'à l'API SocGen
                 if "sg-careers-offers" not in url:
                     return
                 try:
@@ -333,9 +415,10 @@ def get_sg_new(seen_ids: set) -> list:
                         print(f"   ✅ Token capturé ({len(tok)} chars)", file=sys.stderr)
                     return
 
-                # ── Tout autre endpoint sg-careers-offers : tenter d'extraire les offres ──
+                # ── Autres endpoints : tenter d'extraire les offres ───────────
                 if "search" in captured:
-                    return  # Déjà capturé
+                    return
+
                 if isinstance(data, dict):
                     print(
                         f"   [SG debug] {url.split('/')[-1].split('?')[0]} "
@@ -353,7 +436,6 @@ def get_sg_new(seen_ids: set) -> list:
                                 file=sys.stderr,
                             )
                             return
-                    # Pagination type Spring/REST : totalElements + embedded
                     for k in ("_embedded", "embedded"):
                         emb = data.get(k)
                         if isinstance(emb, dict):
@@ -398,13 +480,12 @@ def get_sg_new(seen_ids: set) -> list:
                 except Exception:
                     continue
 
-            # Rechargement si cookies acceptés ou si rien capturé
             if cookie_accepted or "search" not in captured:
                 print("   Rechargement pour déclencher l'API...", file=sys.stderr)
                 page.goto(SG_URL, wait_until="domcontentloaded", timeout=60_000)
                 page.wait_for_timeout(10_000)
 
-            # ── Étape 2 : si token capturé mais pas les résultats → appel direct ──
+            # ── Étape 2 : token capturé mais pas les résultats → appel direct ──
             if "token" in captured and "search" not in captured:
                 print(
                     "   Token capturé mais pas de résultats — tentative appel API direct...",
@@ -416,13 +497,12 @@ def get_sg_new(seen_ids: set) -> list:
                     "Authorization":    f"Bearer {token}",
                     "Accept":           "application/json",
                     "Content-Type":     "application/json",
-                    "User-Agent":       HTTP_HEADERS["User-Agent"],
+                    "User-Agent":       USER_AGENT,
                     "Referer":          SG_URL,
                     "Origin":           SG_BASE,
                     "X-Requested-With": "XMLHttpRequest",
                 }
 
-                # GET avec query params
                 get_endpoints = [
                     ("/sg-careers-offers/search",
                      {"jobType": "COOPERATIVE", "size": 200, "page": 0}),
@@ -447,14 +527,12 @@ def get_sg_new(seen_ids: set) -> list:
                             file=sys.stderr,
                         )
                         if r.status_code == 200:
-                            d = r.json()
-                            _extract_search(d, captured, ep)
+                            _extract_search(r.json(), captured, ep)
                             if "search" in captured:
                                 break
                     except Exception as e:
                         print(f"   [SG debug] GET {ep_path}: {e}", file=sys.stderr)
 
-                # POST si GET n'a rien donné
                 if "search" not in captured:
                     post_endpoints = [
                         ("/sg-careers-offers/search",
@@ -474,8 +552,7 @@ def get_sg_new(seen_ids: set) -> list:
                                 file=sys.stderr,
                             )
                             if r.status_code == 200:
-                                d = r.json()
-                                _extract_search(d, captured, ep)
+                                _extract_search(r.json(), captured, ep)
                                 if "search" in captured:
                                     break
                         except Exception as e:
@@ -508,7 +585,6 @@ def get_sg_new(seen_ids: set) -> list:
         if not isinstance(item, dict):
             continue
 
-        # Filtrer par type COOPERATIVE (VIE) si le champ est présent
         job_type = (
             item.get("jobType") or item.get("type") or item.get("contractType") or ""
         ).upper()
@@ -522,7 +598,6 @@ def get_sg_new(seen_ids: set) -> list:
         if not title:
             continue
 
-        # URL de l'offre
         href = (
             item.get("url") or item.get("link") or item.get("applyUrl")
             or item.get("jobUrl") or item.get("offerUrl") or ""
@@ -537,13 +612,11 @@ def get_sg_new(seen_ids: set) -> list:
             if oid:
                 href = f"{SG_BASE}/en/offer/{oid}"
 
-        # Localisation
         location = (
             item.get("location") or item.get("city") or item.get("country")
             or item.get("place") or item.get("locationLabel") or item.get("jobLocation") or ""
         ).strip()
 
-        # UID unique
         oid = (
             item.get("id") or item.get("objectID") or item.get("jobId")
             or item.get("reference") or item.get("offerId")
@@ -580,7 +653,6 @@ def _extract_search(data, captured: dict, url: str):
                     file=sys.stderr,
                 )
                 return
-        # Pattern _embedded (HAL/Spring)
         for k in ("_embedded", "embedded"):
             emb = data.get(k)
             if isinstance(emb, dict):
@@ -588,10 +660,7 @@ def _extract_search(data, captured: dict, url: str):
                     if isinstance(sub, list) and sub:
                         captured["search"] = sub
                         captured["search_url"] = url
-                        print(
-                            f"   ✅ {len(sub)} offres via embedded",
-                            file=sys.stderr,
-                        )
+                        print(f"   ✅ {len(sub)} offres via embedded", file=sys.stderr)
                         return
     elif isinstance(data, list) and data:
         captured["search"] = data
@@ -661,7 +730,6 @@ def build_html(offers: list, counts: dict) -> str:
   <tr><td align="center">
     <table width="640" cellpadding="0" cellspacing="0"
            style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.08)">
-
       <!-- Header -->
       <tr><td style="background:#1a3c6e;padding:22px 30px;border-radius:8px 8px 0 0">
         <h2 style="margin:0;color:#fff;font-size:19px">🆕 Nouvelle(s) offre(s) VIE détectée(s)</h2>
@@ -670,12 +738,10 @@ def build_html(offers: list, counts: dict) -> str:
         </p>
         <p style="margin:4px 0 0;color:#aec6e8;font-size:12px">{summary}</p>
       </td></tr>
-
       <!-- Offers -->
       <tr><td style="padding:8px 30px 20px">
         <table width="100%" cellpadding="0" cellspacing="0">{rows}</table>
       </td></tr>
-
       <!-- Footer -->
       <tr><td style="background:#f4f6f9;padding:14px 30px;text-align:center;
                      border-radius:0 0 8px 8px">
@@ -687,7 +753,6 @@ def build_html(offers: list, counts: dict) -> str:
           Sources : Business France &nbsp;·&nbsp; BNP Paribas &nbsp;·&nbsp; Société Générale
         </p>
       </td></tr>
-
     </table>
   </td></tr>
 </table>
@@ -699,10 +764,10 @@ def build_html(offers: list, counts: dict) -> str:
 
 def main():
     validate_env()
-    seen_ids = load_seen()
 
-    counts      = {"Business France": 0, "BNP Paribas": 0, "Société Générale": 0}
-    all_new     = []
+    seen_ids = load_seen()
+    counts   = {"Business France": 0, "BNP Paribas": 0, "Société Générale": 0}
+    all_new  = []
     all_seen_to_save = set(seen_ids)
 
     # ── Business France
@@ -742,6 +807,7 @@ def main():
         f"🆕 {total} nouvelle(s) offre(s) VIE"
         f" — {datetime.now().strftime('%d/%m/%Y %H:%M')}"
     )
+
     send_email(subject, html)
     save_seen(all_seen_to_save)
     print("💾 Historique mis à jour.", file=sys.stderr)
