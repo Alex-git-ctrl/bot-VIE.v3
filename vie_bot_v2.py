@@ -203,7 +203,127 @@ def _bf_session() -> requests.Session:
     return s
 
 
-def fetch_bf_all():
+def fetch_bf_via_playwright():
+    """
+    ⚠️ MÉTHODE PRINCIPALE.
+
+    L'API Business France renvoie 401 aux requêtes émises par `requests`, même
+    avec des en-têtes de navigateur parfaits. Le pare-feu identifie la
+    bibliothèque cliente à son empreinte TLS (JA3) — quelque chose que Python ne
+    peut pas falsifier.
+
+    Solution : ouvrir la page de recherche dans Chromium, puis exécuter le
+    `fetch()` DEPUIS la page. La requête part alors du vrai navigateur, avec sa
+    vraie empreinte TLS, ses vrais cookies et le bon Origin.
+    """
+    if not PLAYWRIGHT_AVAILABLE:
+        print("   [BF] Playwright absent — repli sur requests.", file=sys.stderr)
+        return None
+
+    all_offers = []
+
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            ctx = browser.new_context(
+                user_agent=USER_AGENT,
+                locale="fr-FR",
+                timezone_id="Europe/Paris",
+                viewport={"width": 1440, "height": 900},
+            )
+            page = ctx.new_page()
+
+            if STEALTH_AVAILABLE:
+                stealth_sync(page)
+
+            print("   Ouverture de la page de recherche...", file=sys.stderr)
+            page.goto(BF_SEARCH_URL, wait_until="domcontentloaded", timeout=60_000)
+            page.wait_for_timeout(4_000)
+
+            # Bannière cookies éventuelle
+            for sel in (
+                "button:has-text('Tout accepter')",
+                "button:has-text('Accepter')",
+                "#onetrust-accept-btn-handler",
+                "button:has-text('Accept all')",
+            ):
+                try:
+                    btn = page.wait_for_selector(sel, timeout=2_500)
+                    if btn:
+                        btn.click()
+                        print("   Bannière cookies acceptée.", file=sys.stderr)
+                        page.wait_for_timeout(1_500)
+                        break
+                except Exception:
+                    continue
+
+            js = """
+            async ({ url, payload }) => {
+              const r = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              });
+              const text = await r.text();
+              return { status: r.status, text };
+            }
+            """
+
+            skip = 0
+            while True:
+                res = page.evaluate(
+                    js,
+                    {"url": BF_API_URL, "payload": {**BF_PAYLOAD, "skip": skip}},
+                )
+                status = res.get("status")
+
+                if status != 200:
+                    print(
+                        f"   [BF playwright] skip={skip} → statut {status} : "
+                        f"{str(res.get('text'))[:200]}",
+                        file=sys.stderr,
+                    )
+                    break
+
+                try:
+                    data = json.loads(res["text"])
+                except (json.JSONDecodeError, TypeError) as exc:
+                    print(f"   [BF playwright] JSON illisible : {exc}", file=sys.stderr)
+                    break
+
+                total   = data.get("count", 0)
+                results = data.get("result", [])
+
+                known = {str(o.get("id")) for o in all_offers if o.get("id") is not None}
+                for o in results:
+                    if o.get("id") is not None and str(o["id"]) not in known:
+                        all_offers.append(o)
+
+                if len(all_offers) >= total or len(results) < BF_PAYLOAD["limit"]:
+                    break
+
+                skip += BF_PAYLOAD["limit"]
+                page.wait_for_timeout(400)
+
+            browser.close()
+
+    except Exception as exc:
+        print(f"   [BF playwright erreur] {exc}", file=sys.stderr)
+        return all_offers or None
+
+    if all_offers:
+        print(
+            f"   ✅ {len(all_offers)} offres récupérées via Chromium.",
+            file=sys.stderr,
+        )
+    return all_offers or None
+
+
+def fetch_bf_via_requests():
+    """Repli : appel direct avec requests (échoue si le WAF filtre l'empreinte TLS)."""
     all_offers, skip = [], 0
     session = _bf_session()
 
@@ -255,6 +375,15 @@ def fetch_bf_all():
     return all_offers
 
 
+def fetch_bf_all():
+    """Chromium d'abord (contourne le filtrage TLS), requests en repli."""
+    offers = fetch_bf_via_playwright()
+    if offers:
+        return offers
+    print("   Repli sur requests...", file=sys.stderr)
+    return fetch_bf_via_requests()
+
+
 def _parse_bf_date(raw):
     if not raw:
         return None
@@ -300,8 +429,9 @@ def get_bf_new(seen_ids: set) -> list:
 
         if not all_offers:
             print(
-                "   ⚠️ Aucune offre récupérée — vérifie les logs ci-dessus "
-                "(401 = en-têtes refusés, timeout = réseau).",
+                "   ⚠️ Aucune offre récupérée, y compris via Chromium. "
+                "Le blocage est alors basé sur l'adresse IP du runner GitHub "
+                "Actions : il faut héberger le bot ailleurs.",
                 file=sys.stderr,
             )
             return []
