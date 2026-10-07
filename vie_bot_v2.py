@@ -21,10 +21,15 @@ Variables d'environnement requises (GitHub Secrets) :
   GMAIL_PASSWORD -> mot de passe d'application Gmail (16 caractères)
   RECIPIENT      -> adresse de réception (facultatif, défaut = GMAIL_ADDRESS)
 
+Surveillance : si une source ne renvoie aucune offre (ou plante) depuis au moins
+6 h et 3 passages d'affilée, un mail d'alerte est envoyé, puis un mail quand
+elle refonctionne. L'état est conservé dans seen_offers.json (source_health).
+
 Variables facultatives :
   DRY_RUN=1      -> pas d'email, pas d'écriture de seen_offers.json ;
-                    l'aperçu HTML est écrit dans PREVIEW_PATH (défaut apercu_mail.html)
-  FORCE_BANKS=1  -> interroge les banques même hors du créneau horaire
+                    aperçus HTML dans PREVIEW_PATH (défaut apercu_mail.html)
+                    et ALERT_PREVIEW_PATH (défaut apercu_alerte.html)
+  FORCE_BANKS=1  -> interroge les banques même si elles l'ont été il y a moins d'une heure
 
 Dépendances :
   pip install requests beautifulsoup4 curl_cffi playwright tf-playwright-stealth
@@ -148,13 +153,35 @@ SOURCES = (
 LOOKBACK_DAYS = 14
 SEEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seen_offers.json")
 
-# Les banques ne sont interrogées qu'une fois par heure (premier passage du cron,
-# minute 7) ; Business France l'est à chaque passage.
-BANKS_WINDOW_MINUTES = 15
+# Les banques sont interrogées au plus une fois par heure ; Business France à
+# chaque passage. GitHub ne respecte pas le cron (passages réels toutes les 3 à
+# 7 h, à des minutes aléatoires) : on mémorise donc l'heure de la dernière
+# consultation au lieu de se fier à l'horloge.
+BANKS_MIN_INTERVAL = timedelta(minutes=55)
+
+# Alerte quand une source ne renvoie plus aucune offre (ou plante) depuis au
+# moins HEALTH_ALERT_HOURS ET sur au moins HEALTH_ALERT_MIN_CHECKS passages
+# d'affilée. Une seule alerte par panne, puis un mail quand la source revient.
+HEALTH_ALERT_HOURS      = 6
+HEALTH_ALERT_MIN_CHECKS = 3
 
 DRY_RUN     = os.environ.get("DRY_RUN", "") == "1"
 FORCE_BANKS = os.environ.get("FORCE_BANKS", "") == "1"
-PREVIEW_PATH = os.environ.get("PREVIEW_PATH", "apercu_mail.html")
+PREVIEW_PATH       = os.environ.get("PREVIEW_PATH", "apercu_mail.html")
+ALERT_PREVIEW_PATH = os.environ.get("ALERT_PREVIEW_PATH", "apercu_alerte.html")
+
+# Lien vers les logs du passage en cours (variables fournies par GitHub Actions).
+RUN_URL = (
+    f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/"
+    f"{os.environ.get('GITHUB_REPOSITORY', '')}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+    if os.environ.get("GITHUB_RUN_ID") else ""
+)
+
+try:
+    from zoneinfo import ZoneInfo
+    PARIS_TZ = ZoneInfo("Europe/Paris")
+except Exception:          # base tz absente (Windows sans tzdata) : on reste en UTC
+    PARIS_TZ = timezone.utc
 
 GMAIL_ADDRESS = os.environ.get("GMAIL_ADDRESS", "").strip()
 # On retire aussi les espaces internes : Google affiche le mot de passe
@@ -223,22 +250,35 @@ def validate_env():
         )
 
 
-def load_seen() -> set:
+def load_state():
+    """
+    Lit seen_offers.json et retourne (identifiants déjà envoyés, état), où l'état
+    contient l'heure de la dernière consultation des banques et la santé de
+    chaque source.
+    """
+    empty = {"last_banks_check": None, "source_health": {}}
     if not os.path.exists(SEEN_FILE):
-        return set()
+        return set(), empty
     try:
         with open(SEEN_FILE, encoding="utf-8") as f:
             data = json.load(f)
-        return {str(x) for x in data.get("seen_ids", [])}
+        seen = {str(x) for x in data.get("seen_ids", [])}
+        state = {
+            "last_banks_check": data.get("last_banks_check"),
+            "source_health": data.get("source_health") or {},
+        }
+        return seen, state
     except (json.JSONDecodeError, OSError) as exc:
         log(f"⚠️ Impossible de lire {SEEN_FILE}: {exc}")
-        return set()
+        return set(), empty
 
 
-def save_seen(ids: set):
+def save_state(ids: set, state: dict):
     payload = {
         "seen_ids": sorted(str(x) for x in ids),
         "last_updated": datetime.now(timezone.utc).isoformat(),
+        "last_banks_check": state.get("last_banks_check"),
+        "source_health": state.get("source_health") or {},
     }
     with open(SEEN_FILE, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
@@ -297,10 +337,29 @@ def clean_text(s) -> str:
     return re.sub(r"\s+", " ", html.unescape(str(s or ""))).strip()
 
 
-def banks_due() -> bool:
+def to_iso(dt: datetime) -> str:
+    return dt.isoformat(timespec="seconds")
+
+
+def from_iso(raw) -> "datetime | None":
+    try:
+        dt = datetime.fromisoformat(str(raw))
+    except (TypeError, ValueError):
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def fmt_dt(raw) -> str:
+    """Date-heure ISO (UTC) → '08/10/2026 à 14:05', heure de Paris."""
+    dt = from_iso(raw)
+    return dt.astimezone(PARIS_TZ).strftime("%d/%m/%Y à %H:%M") if dt else "date inconnue"
+
+
+def banks_due(state: dict, now: datetime) -> bool:
     if DRY_RUN or FORCE_BANKS:
         return True
-    return datetime.now(timezone.utc).minute < BANKS_WINDOW_MINUTES
+    last = from_iso(state.get("last_banks_check"))
+    return last is None or now - last >= BANKS_MIN_INTERVAL
 
 
 def unique_by_uid(offers) -> list:
@@ -531,7 +590,10 @@ def fmt_bf_offer(offer: dict) -> dict:
 
 
 def get_bf_new(seen_ids: set):
-    """Retourne (nouvelles offres, toutes les offres récupérées) au format commun."""
+    """
+    Retourne (nouvelles offres, toutes les offres récupérées, erreur ou None),
+    au format commun.
+    """
     log("📡 Business France…")
     try:
         all_offers = fetch_bf_all()
@@ -544,9 +606,9 @@ def get_bf_new(seen_ids: set):
                     "Le blocage est alors basé sur l'adresse IP du runner GitHub "
                     "Actions : il faut héberger le bot ailleurs."
                 )
-            else:
-                log("   ⚠️ Aucune offre : l'API Business France exige Chromium (Playwright).")
-            return [], []
+                return [], [], "aucune offre récupérée, ni via Chromium ni via requests"
+            log("   ⚠️ Aucune offre : l'API Business France exige Chromium (Playwright).")
+            return [], [], "Playwright absent : l'API Business France exige Chromium"
 
         cutoff = lookback_cutoff()
         recent = [
@@ -557,10 +619,10 @@ def get_bf_new(seen_ids: set):
 
         new = [o for o in recent if str(o.get("id")) not in seen_ids]
         log(f"   {len(new)} nouvelle(s) offre(s).")
-        return [fmt_bf_offer(o) for o in new], [fmt_bf_offer(o) for o in all_offers]
+        return [fmt_bf_offer(o) for o in new], [fmt_bf_offer(o) for o in all_offers], None
     except Exception as exc:
         log(f"[BF erreur] {exc}")
-        return [], []
+        return [], [], str(exc)
 
 
 # ── Source 2 : Société Générale ────────────────────────────────────────────────
@@ -667,11 +729,12 @@ def fmt_sg_offer(doc: dict) -> dict:
     }
 
 
-def get_sg_new(seen_ids: set) -> list:
+def get_sg_new(seen_ids: set):
+    """Retourne (nouvelles offres, nombre d'offres en ligne, erreur ou None)."""
     log("📡 Société Générale…")
     if not CURL_CFFI_AVAILABLE:
         log("   curl_cffi absent — source ignorée.")
-        return []
+        return [], 0, "curl_cffi absent"
     try:
         docs = retry(fetch_sg_docs, "SG")
         log(f"   {len(docs)} offre(s) V.I.E en ligne.")
@@ -686,10 +749,10 @@ def get_sg_new(seen_ids: set) -> list:
         recent = [o for o in offers if o["published"] is None or o["published"] >= cutoff]
         new = [o for o in recent if o["uid"] not in seen_ids]
         log(f"   {len(new)} nouvelle(s) offre(s).")
-        return new
+        return new, len(offers), None
     except Exception as exc:
         log(f"[SG erreur] {exc}")
-        return []
+        return [], 0, str(exc)
 
 
 # ── Source 3 : BNP Paribas ─────────────────────────────────────────────────────
@@ -749,21 +812,22 @@ def fmt_bnp_offer(card) -> "dict | None":
     }
 
 
-def get_bnp_new(seen_ids: set) -> list:
+def get_bnp_new(seen_ids: set):
+    """Retourne (nouvelles offres, nombre d'offres en ligne, erreur ou None)."""
     log("📡 BNP Paribas…")
     if not CURL_CFFI_AVAILABLE:
         log("   curl_cffi absent — source ignorée.")
-        return []
+        return [], 0, "curl_cffi absent"
     try:
         cards = retry(fetch_bnp_cards, "BNP")
         offers = unique_by_uid(o for o in (fmt_bnp_offer(c) for c in cards) if o)
         log(f"   {len(offers)} offre(s) VIE en ligne.")
         new = [o for o in offers if o["uid"] not in seen_ids]
         log(f"   {len(new)} nouvelle(s) offre(s).")
-        return new
+        return new, len(offers), None
     except Exception as exc:
         log(f"[BNP erreur] {exc}")
-        return []
+        return [], 0, str(exc)
 
 
 # ── Source 4 : Natixis ─────────────────────────────────────────────────────────
@@ -833,7 +897,8 @@ def fmt_ntx_offer(item: dict) -> dict:
     }
 
 
-def get_ntx_new(seen_ids: set) -> list:
+def get_ntx_new(seen_ids: set):
+    """Retourne (nouvelles offres, nombre d'offres en ligne, erreur ou None)."""
     log("📡 Natixis…")
     try:
         items = retry(fetch_ntx_items, "Natixis")
@@ -843,10 +908,49 @@ def get_ntx_new(seen_ids: set) -> list:
         recent = [o for o in offers if o["published"] is None or o["published"] >= cutoff]
         new = [o for o in recent if o["uid"] not in seen_ids]
         log(f"   {len(new)} nouvelle(s) offre(s).")
-        return new
+        return new, len(offers), None
     except Exception as exc:
         log(f"[Natixis erreur] {exc}")
-        return []
+        return [], 0, str(exc)
+
+
+# ── Surveillance des sources ───────────────────────────────────────────────────
+
+def update_health(health: dict, name: str, online: int, error, now: datetime):
+    """
+    Met à jour l'état d'une source après un passage et retourne l'événement à
+    signaler, ou None :
+      kind="down"      aucune offre (ou erreur) depuis HEALTH_ALERT_HOURS et sur
+                       HEALTH_ALERT_MIN_CHECKS passages d'affilée → une seule alerte
+      kind="recovered" la source renvoie de nouveau des offres après une alerte
+    """
+    h = health.setdefault(name, {})
+
+    if online > 0 and not error:
+        event = None
+        if h.get("alerted"):
+            event = {"kind": "recovered", "source": name, "online": online,
+                     "failing_since": h.get("failing_since")}
+        h.update(last_ok=to_iso(now), last_count=online, failing_since=None,
+                 failed_checks=0, alerted=False, last_error=None)
+        return event
+
+    h["failed_checks"] = h.get("failed_checks", 0) + 1
+    h["last_error"] = error or "0 offre en ligne"
+    if not h.get("failing_since"):
+        h["failing_since"] = to_iso(now)
+    since = from_iso(h["failing_since"]) or now
+    log(f"   ⚠️ {name} : {h['last_error']} — {h['failed_checks']} passage(s) d'affilée "
+        f"sans offre, depuis le {fmt_dt(h['failing_since'])}")
+
+    if (not h.get("alerted")
+            and h["failed_checks"] >= HEALTH_ALERT_MIN_CHECKS
+            and now - since >= timedelta(hours=HEALTH_ALERT_HOURS)):
+        h["alerted"] = True
+        return {"kind": "down", "source": name, "error": h["last_error"],
+                "failing_since": h["failing_since"], "failed_checks": h["failed_checks"],
+                "last_ok": h.get("last_ok"), "last_count": h.get("last_count")}
+    return None
 
 
 # ── Doublons entre sources ─────────────────────────────────────────────────────
@@ -1006,6 +1110,90 @@ def build_html(new_by_source: dict) -> str:
 </html>"""
 
 
+def alert_subject(events: list) -> str:
+    down = [e["source"] for e in events if e["kind"] == "down"]
+    back = [e["source"] for e in events if e["kind"] == "recovered"]
+    parts = []
+    if down:
+        verb = "ne renvoie" if len(down) == 1 else "ne renvoient"
+        parts.append(f"⚠️ Bot VIE : {', '.join(down)} {verb} plus d'offres")
+    if back:
+        verb = "fonctionne" if len(back) == 1 else "fonctionnent"
+        parts.append(f"✅ {'Bot VIE : ' if not down else ''}{', '.join(back)} {verb} à nouveau")
+    return " · ".join(parts)
+
+
+def build_alert_html(events: list) -> str:
+    links = {name: (color, url) for name, color, _icon, url in SOURCES}
+    blocks = []
+    for ev in sorted(events, key=lambda e: e["kind"] != "down"):   # pannes d'abord
+        color, url = links.get(ev["source"], (BF_COLOR, ""))
+        if ev["kind"] == "down":
+            bg, border = "#fff7ed", "#f59e0b"
+            title = f"⚠️ {ev['source']} : aucune offre récupérée depuis le {fmt_dt(ev['failing_since'])}"
+            last_ok = fmt_dt(ev.get("last_ok")) if ev.get("last_ok") else "aucun depuis la mise en place de l'alerte"
+            if ev.get("last_count"):
+                last_ok += f" ({ev['last_count']} offres en ligne)"
+            lines = [
+                f"<b>Dernière erreur :</b> {html.escape(ev['error'])}",
+                f"<b>Passages d'affilée sans offre :</b> {ev['failed_checks']}",
+                f"<b>Dernier passage réussi :</b> {last_ok}",
+                "Si le site affiche bien des offres VIE, le bot est à réparer : le site a "
+                "probablement changé de structure ou bloque le bot. S'il n'en affiche "
+                "aucune, il n'y a rien à faire ; tu recevras un mail quand la source reviendra.",
+            ]
+        else:
+            bg, border = "#f0fdf4", "#16a34a"
+            title = f"✅ {ev['source']} fonctionne à nouveau : {ev['online']} offre(s) en ligne"
+            lines = [f"La panne avait commencé le {fmt_dt(ev.get('failing_since'))}."]
+
+        buttons = []
+        if url:
+            buttons.append(
+                f'<a href="{url}" style="background:{color};color:#fff;padding:6px 14px;'
+                f'border-radius:4px;font-size:12px;text-decoration:none;font-weight:600">'
+                f'Vérifier sur le site →</a>'
+            )
+        if RUN_URL and ev["kind"] == "down":
+            buttons.append(
+                f'<a href="{RUN_URL}" style="color:#1a3c6e;font-size:12px;font-weight:600;'
+                f'text-decoration:none;margin-left:12px">Voir les logs du passage →</a>'
+            )
+        body = "".join(f'<p style="margin:6px 0;font-size:13px;color:#444">{l}</p>' for l in lines)
+        blocks.append(f"""
+      <tr><td style="padding:18px 30px 0">
+        <div style="background:{bg};border-left:4px solid {border};padding:12px 16px;border-radius:4px">
+          <p style="margin:0 0 6px;font-size:15px;font-weight:700;color:#1a3c6e">{html.escape(title)}</p>
+          {body}
+          <div style="margin-top:10px">{"".join(buttons)}</div>
+        </div>
+      </td></tr>""")
+
+    now_str = datetime.now(PARIS_TZ).strftime("%d/%m/%Y à %H:%M")
+    return f"""<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#f4f6f9;font-family:Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:30px 0">
+  <tr><td align="center">
+    <table width="640" cellpadding="0" cellspacing="0"
+           style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.08)">
+      <tr><td style="background:#1a3c6e;padding:20px 30px;border-radius:8px 8px 0 0">
+        <h2 style="margin:0;color:#fff;font-size:18px">🔔 État des sources du bot VIE</h2>
+        <p style="margin:6px 0 0;color:#aec6e8;font-size:12px">Message du {now_str}</p>
+      </td></tr>
+      {"".join(blocks)}
+      <tr><td style="padding:18px 30px 22px;font-size:11px;color:#999">
+        Alerte envoyée quand une source ne renvoie aucune offre depuis au moins
+        {HEALTH_ALERT_HOURS} h et {HEALTH_ALERT_MIN_CHECKS} passages d'affilée.
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>"""
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
@@ -1014,30 +1202,38 @@ def main():
     else:
         validate_env()
 
-    seen_ids = load_seen()
-    to_save  = set(seen_ids)
+    now = datetime.now(timezone.utc)
+    seen_ids, state = load_state()
+    health  = state["source_health"]
+    to_save = set(seen_ids)
     new_by_source = {name: [] for name, *_ in SOURCES}
+    events = []
 
     # ── Business France (à chaque passage)
-    bf_new, bf_all = get_bf_new(seen_ids)
+    bf_new, bf_all, bf_error = get_bf_new(seen_ids)
     new_by_source["Business France"] = bf_new
     to_save.update(o["uid"] for o in bf_new)
+    events.append(update_health(health, "Business France", len(bf_all), bf_error, now))
 
-    # ── Banques (une fois par heure)
-    if banks_due():
+    # ── Banques (au plus une fois par heure)
+    if banks_due(state, now):
+        state["last_banks_check"] = to_iso(now)
         for name, fetcher in (
             ("Société Générale", get_sg_new),
             ("BNP Paribas",      get_bnp_new),
             ("Natixis",          get_ntx_new),
         ):
-            offers = fetcher(seen_ids)
-            kept, dropped = dedup_against_bf(offers, bf_all)
+            offers, online, error = fetcher(seen_ids)
+            kept, _dropped = dedup_against_bf(offers, bf_all)
             new_by_source[name] = kept
             # Les doublons sont aussi mémorisés pour ne pas réapparaître.
             to_save.update(o["uid"] for o in offers)
+            events.append(update_health(health, name, online, error, now))
     else:
-        log("⏭ Banques non interrogées sur ce passage (une fois par heure, "
-            "FORCE_BANKS=1 pour forcer).")
+        log(f"⏭ Banques déjà interrogées le {fmt_dt(state.get('last_banks_check'))} "
+            "(au plus une fois par heure, FORCE_BANKS=1 pour forcer).")
+
+    events = [e for e in events if e]
 
     # ── Bilan
     total = sum(len(v) for v in new_by_source.values())
@@ -1045,31 +1241,47 @@ def main():
     for name in new_by_source:
         log(f"   {name} : {len(new_by_source[name])}")
 
-    if not total:
-        log("Aucune nouvelle offre. Pas d'email envoyé.")
-        if not DRY_RUN:
-            save_seen(to_save)
-        return
+    # ── Mail des nouvelles offres
+    if total:
+        html_body = build_html(new_by_source)
+        summary = " · ".join(
+            f"{name} {len(offers)}" for name, offers in new_by_source.items() if offers
+        )
+        subject = (
+            f"🆕 {total} nouvelle(s) offre(s) VIE — {summary}"
+            f" — {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+        )
+        if DRY_RUN:
+            with open(PREVIEW_PATH, "w", encoding="utf-8") as f:
+                f.write(html_body)
+            log(f"🧪 Sujet : {subject}")
+            log(f"🧪 Aperçu HTML écrit dans {PREVIEW_PATH}")
+        else:
+            send_email(subject, html_body)
+    else:
+        log("Aucune nouvelle offre. Pas d'email d'offres.")
 
-    html_body = build_html(new_by_source)
-    summary = " · ".join(
-        f"{name} {len(offers)}" for name, offers in new_by_source.items() if offers
-    )
-    subject = (
-        f"🆕 {total} nouvelle(s) offre(s) VIE — {summary}"
-        f" — {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-    )
+    # ── Mail d'alerte (source muette depuis trop longtemps, ou rétablie)
+    if events:
+        subject = alert_subject(events)
+        log(f"🔔 {subject}")
+        if DRY_RUN:
+            with open(ALERT_PREVIEW_PATH, "w", encoding="utf-8") as f:
+                f.write(build_alert_html(events))
+            log(f"🧪 Aperçu de l'alerte écrit dans {ALERT_PREVIEW_PATH}")
+        else:
+            try:
+                send_email(subject, build_alert_html(events))
+            except Exception as exc:
+                # On retentera l'alerte au prochain passage.
+                log(f"❌ Envoi de l'alerte impossible : {exc}")
+                for ev in events:
+                    if ev["kind"] == "down":
+                        health[ev["source"]]["alerted"] = False
 
-    if DRY_RUN:
-        with open(PREVIEW_PATH, "w", encoding="utf-8") as f:
-            f.write(html_body)
-        log(f"🧪 Sujet : {subject}")
-        log(f"🧪 Aperçu HTML écrit dans {PREVIEW_PATH}")
-        return
-
-    send_email(subject, html_body)
-    save_seen(to_save)
-    log("💾 Historique mis à jour.")
+    if not DRY_RUN:
+        save_state(to_save, state)
+        log("💾 Historique et état des sources mis à jour.")
 
 
 if __name__ == "__main__":

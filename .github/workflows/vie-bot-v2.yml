@@ -30,7 +30,7 @@ jobs:
           GMAIL_ADDRESS:  ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
           RECIPIENT:      ${{ secrets.RECIPIENT }}
-          # Les banques ne sont interrogées qu'au premier passage de chaque heure ;
+          # Les banques sont interrogées au plus une fois par heure ;
           # un lancement manuel les interroge toujours.
           FORCE_BANKS:    ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: python vie_bot_v2.py

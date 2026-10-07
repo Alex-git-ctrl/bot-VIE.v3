@@ -16,14 +16,28 @@ titre très proche) sont écartées pour éviter les doublons dans le mail.
 
 ## Fonctionnement
 
-- Le workflow GitHub Actions tourne toutes les 15 minutes (`7,22,37,52 * * * *`).
-- Business France est interrogé à chaque passage ; les trois banques une fois par
-  heure (passage de la minute 7) pour limiter le trafic sur leurs sites.
-  Un lancement manuel (« Run workflow ») interroge toujours les banques.
+- Le workflow est programmé toutes les 15 minutes (`7,22,37,52 * * * *`), mais
+  GitHub ne respecte pas ce rythme : en pratique il passe toutes les 3 à 7 heures.
+- Business France est interrogé à chaque passage ; les trois banques au plus une
+  fois par heure (l'heure de la dernière consultation est mémorisée), pour
+  limiter le trafic sur leurs sites. Un lancement manuel (« Run workflow »)
+  interroge toujours les banques.
 - `seen_offers.json` mémorise les offres déjà envoyées (identifiants préfixés
-  `sg_`, `bnp_`, `ntx_` pour les banques) et est commité par le workflow.
+  `sg_`, `bnp_`, `ntx_` pour les banques) ainsi que l'état de chaque source, et
+  est commité par le workflow.
 - Une fenêtre de 14 jours s'applique aux sources qui exposent une date de
   publication fiable (Business France, Société Générale, Natixis).
+
+## Alerte en cas de panne d'une source
+
+Si une source ne renvoie **aucune offre** (ou plante) depuis au moins **6 heures
+et 3 passages d'affilée**, le bot envoie un mail « ⚠️ Bot VIE : … ne renvoie plus
+d'offres » avec la dernière erreur, la date du dernier passage réussi, un lien
+vers le site et un lien vers les logs GitHub. Une seule alerte est envoyée par
+panne ; un mail « ✅ … fonctionne à nouveau » suit quand la source revient.
+
+Les seuils se règlent dans `vie_bot_v2.py` (`HEALTH_ALERT_HOURS`,
+`HEALTH_ALERT_MIN_CHECKS`).
 
 ## Secrets GitHub
 
@@ -41,5 +55,6 @@ DRY_RUN=1 PREVIEW_PATH=apercu.html python vie_bot_v2.py
 ```
 
 `DRY_RUN=1` n'envoie rien, n'écrit pas `seen_offers.json` et dépose l'aperçu
-HTML du mail dans `PREVIEW_PATH`. Sans Playwright installé, Business France
+HTML du mail dans `PREVIEW_PATH` (et celui d'une éventuelle alerte dans
+`ALERT_PREVIEW_PATH`). Sans Playwright installé, Business France
 renverra 0 offre en local : c'est attendu, il fonctionne depuis GitHub Actions.
