@@ -173,22 +173,24 @@
     "bnp_vie-it-production-support-oosterhout-h-f",
     "ntx_21327",
     "ntx_21831",
+    "ntx_22301",
     "sg_26000HIJ",
     "sg_26000HUK",
     "sg_26000I9I",
     "sg_26000JF9",
     "sg_26000JGW",
     "sg_26000JVP",
+    "sg_26000K2X",
     "sg_26000KGE",
     "sg_26000KP3",
     "sg_26000KYE",
     "sg_26000LJK"
   ],
-  "last_updated": "2026-10-09T09:10:13.940477+00:00",
-  "last_banks_check": "2026-10-09T09:09:52+00:00",
+  "last_updated": "2026-10-09T16:16:58.858343+00:00",
+  "last_banks_check": "2026-10-09T16:16:38+00:00",
   "source_health": {
     "Business France": {
-      "last_ok": "2026-10-09T09:09:52+00:00",
+      "last_ok": "2026-10-09T16:16:38+00:00",
       "last_count": 21,
       "failing_since": null,
       "failed_checks": 0,
@@ -196,24 +198,24 @@
       "last_error": null
     },
     "Société Générale": {
-      "last_ok": "2026-10-09T09:09:52+00:00",
-      "last_count": 13,
+      "last_ok": "2026-10-09T16:16:38+00:00",
+      "last_count": 12,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "BNP Paribas": {
-      "last_ok": "2026-10-09T09:09:52+00:00",
-      "last_count": 7,
+      "last_ok": "2026-10-09T16:16:38+00:00",
+      "last_count": 6,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "Natixis": {
-      "last_ok": "2026-10-09T09:09:52+00:00",
-      "last_count": 7,
+      "last_ok": "2026-10-09T16:16:38+00:00",
+      "last_count": 8,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
