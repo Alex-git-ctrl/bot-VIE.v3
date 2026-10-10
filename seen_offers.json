@@ -186,11 +186,11 @@
     "sg_26000KYE",
     "sg_26000LJK"
   ],
-  "last_updated": "2026-10-10T12:58:09.968134+00:00",
-  "last_banks_check": "2026-10-10T12:57:52+00:00",
+  "last_updated": "2026-10-10T17:45:05.198769+00:00",
+  "last_banks_check": "2026-10-10T17:44:50+00:00",
   "source_health": {
     "Business France": {
-      "last_ok": "2026-10-10T12:57:52+00:00",
+      "last_ok": "2026-10-10T17:44:50+00:00",
       "last_count": 21,
       "failing_since": null,
       "failed_checks": 0,
@@ -198,7 +198,7 @@
       "last_error": null
     },
     "Société Générale": {
-      "last_ok": "2026-10-10T12:57:52+00:00",
+      "last_ok": "2026-10-10T17:44:50+00:00",
       "last_count": 12,
       "failing_since": null,
       "failed_checks": 0,
@@ -206,7 +206,7 @@
       "last_error": null
     },
     "BNP Paribas": {
-      "last_ok": "2026-10-10T12:57:52+00:00",
+      "last_ok": "2026-10-10T17:44:50+00:00",
       "last_count": 6,
       "failing_since": null,
       "failed_checks": 0,
@@ -214,7 +214,7 @@
       "last_error": null
     },
     "Natixis": {
-      "last_ok": "2026-10-10T12:57:52+00:00",
+      "last_ok": "2026-10-10T17:44:50+00:00",
       "last_count": 8,
       "failing_since": null,
       "failed_checks": 0,
