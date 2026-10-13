@@ -162,6 +162,7 @@
     "246622",
     "246659",
     "246998",
+    "247018",
     "248",
     "253",
     "bnp_hr-support-and-csr-champion-vie-arval-sweden",
@@ -187,29 +188,30 @@
     "sg_26000KGE",
     "sg_26000KP3",
     "sg_26000KYE",
+    "sg_26000LGH",
     "sg_26000LJK"
   ],
-  "last_updated": "2026-10-13T09:45:41.863157+00:00",
-  "last_banks_check": "2026-10-13T09:45:26+00:00",
+  "last_updated": "2026-10-13T17:09:14.934692+00:00",
+  "last_banks_check": "2026-10-13T17:08:58+00:00",
   "source_health": {
     "Business France": {
-      "last_ok": "2026-10-13T09:45:26+00:00",
-      "last_count": 22,
+      "last_ok": "2026-10-13T17:08:58+00:00",
+      "last_count": 23,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "Société Générale": {
-      "last_ok": "2026-10-13T09:45:26+00:00",
-      "last_count": 13,
+      "last_ok": "2026-10-13T17:08:58+00:00",
+      "last_count": 14,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "BNP Paribas": {
-      "last_ok": "2026-10-13T09:45:26+00:00",
+      "last_ok": "2026-10-13T17:08:58+00:00",
       "last_count": 6,
       "failing_since": null,
       "failed_checks": 0,
@@ -217,7 +219,7 @@
       "last_error": null
     },
     "Natixis": {
-      "last_ok": "2026-10-13T09:45:26+00:00",
+      "last_ok": "2026-10-13T17:08:58+00:00",
       "last_count": 8,
       "failing_since": null,
       "failed_checks": 0,
