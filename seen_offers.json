@@ -167,11 +167,14 @@
     "248",
     "253",
     "bnp_hr-support-and-csr-champion-vie-arval-sweden",
+    "bnp_v-i-e-alm-treasury-officer-hong-kong-h-f",
     "bnp_v-i-e-communication-officer-milan-h-f",
     "bnp_v-i-e-corporate-coverage-analyst-stuttgart-h-f",
     "bnp_v-i-e-credit-analyst-tokyo-h-f",
+    "bnp_v-i-e-structured-products-sales-frankfurt-h-f",
     "bnp_v-i-e-tactical-quantitative-developper-new-york-h-f-1",
     "bnp_v-i-e-transportation-capital-markets-analyst-athenes-h-f",
+    "bnp_vie-analyst-change-solutions-new-jersey-h-f",
     "bnp_vie-analyst-strategy-development-data-lisbonne-h-f",
     "bnp_vie-charge-d-etudes-actuarielles-gerlingen-h-f",
     "bnp_vie-investment-advisory-banque-privee-luxembourg-h-f",
@@ -196,35 +199,35 @@
     "sg_26000LGH",
     "sg_26000LJK"
   ],
-  "last_updated": "2026-10-15T10:21:18.239541+00:00",
-  "last_banks_check": "2026-10-15T10:21:04+00:00",
+  "last_updated": "2026-10-15T15:07:40.080218+00:00",
+  "last_banks_check": "2026-10-15T15:06:39+00:00",
   "source_health": {
     "Business France": {
-      "last_ok": "2026-10-15T00:56:19+00:00",
-      "last_count": 22,
-      "failing_since": "2026-10-15T05:45:26+00:00",
-      "failed_checks": 2,
+      "last_ok": "2026-10-15T15:06:39+00:00",
+      "last_count": 21,
+      "failing_since": null,
+      "failed_checks": 0,
       "alerted": false,
-      "last_error": "aucune offre récupérée, ni via Chromium ni via requests"
+      "last_error": null
     },
     "Société Générale": {
-      "last_ok": "2026-10-15T10:21:04+00:00",
-      "last_count": 11,
+      "last_ok": "2026-10-15T15:06:39+00:00",
+      "last_count": 10,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "BNP Paribas": {
-      "last_ok": "2026-10-15T10:21:04+00:00",
-      "last_count": 8,
+      "last_ok": "2026-10-15T15:06:39+00:00",
+      "last_count": 11,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "Natixis": {
-      "last_ok": "2026-10-15T10:21:04+00:00",
+      "last_ok": "2026-10-15T15:06:39+00:00",
       "last_count": 7,
       "failing_since": null,
       "failed_checks": 0,
