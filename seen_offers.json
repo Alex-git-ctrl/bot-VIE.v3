@@ -170,6 +170,7 @@
     "253",
     "bnp_hr-support-and-csr-champion-vie-arval-sweden",
     "bnp_v-i-e-alm-treasury-officer-hong-kong-h-f",
+    "bnp_v-i-e-chief-of-staff-support-h-f-londres",
     "bnp_v-i-e-communication-officer-milan-h-f",
     "bnp_v-i-e-corporate-coverage-analyst-stuttgart-h-f",
     "bnp_v-i-e-credit-analyst-tokyo-h-f",
@@ -220,19 +221,19 @@
     "sg_26000M9A",
     "sg_26000MG5"
   ],
-  "last_updated": "2026-10-23T10:26:28.688830+00:00",
-  "last_banks_check": "2026-10-23T10:26:02+00:00",
+  "last_updated": "2026-10-23T15:25:10.899712+00:00",
+  "last_banks_check": "2026-10-23T15:23:49+00:00",
   "source_health": {
     "Business France": {
       "last_ok": "2026-10-21T04:29:30+00:00",
       "last_count": 18,
       "failing_since": "2026-10-21T09:31:46+00:00",
-      "failed_checks": 13,
+      "failed_checks": 14,
       "alerted": true,
       "last_error": "aucune offre récupérée, ni via Chromium ni via requests"
     },
     "Société Générale": {
-      "last_ok": "2026-10-23T10:26:02+00:00",
+      "last_ok": "2026-10-23T15:23:49+00:00",
       "last_count": 16,
       "failing_since": null,
       "failed_checks": 0,
@@ -240,15 +241,15 @@
       "last_error": null
     },
     "BNP Paribas": {
-      "last_ok": "2026-10-23T10:26:02+00:00",
-      "last_count": 7,
+      "last_ok": "2026-10-23T15:23:49+00:00",
+      "last_count": 9,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "Natixis": {
-      "last_ok": "2026-10-23T10:26:02+00:00",
+      "last_ok": "2026-10-23T15:23:49+00:00",
       "last_count": 9,
       "failing_since": null,
       "failed_checks": 0,
