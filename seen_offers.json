@@ -184,6 +184,7 @@
     "bnp_vie-analyst-change-solutions-new-jersey-h-f",
     "bnp_vie-analyst-strategy-development-data-lisbonne-h-f",
     "bnp_vie-charge-d-etudes-actuarielles-gerlingen-h-f",
+    "bnp_vie-gestionnaire-de-projet-achats-luxembourg-h-f",
     "bnp_vie-investment-advisory-banque-privee-luxembourg-h-f",
     "bnp_vie-it-production-support-oosterhout-h-f",
     "bnp_vie-marketing-officer-h-f",
@@ -191,6 +192,7 @@
     "bnp_vie-sales-manager-hong-kong-h-f",
     "bnp_vie-security-coordinator-goteborg-h-f",
     "ntx_21327",
+    "ntx_21777",
     "ntx_21831",
     "ntx_22279",
     "ntx_22301",
@@ -221,36 +223,36 @@
     "sg_26000M9A",
     "sg_26000MG5"
   ],
-  "last_updated": "2026-10-26T06:54:11.204157+00:00",
-  "last_banks_check": "2026-10-26T06:53:54+00:00",
+  "last_updated": "2026-10-26T14:05:45.942991+00:00",
+  "last_banks_check": "2026-10-26T14:05:27+00:00",
   "source_health": {
     "Business France": {
       "last_ok": "2026-10-21T04:29:30+00:00",
       "last_count": 18,
       "failing_since": "2026-10-21T09:31:46+00:00",
-      "failed_checks": 33,
+      "failed_checks": 34,
       "alerted": true,
       "last_error": "aucune offre récupérée, ni via Chromium ni via requests"
     },
     "Société Générale": {
-      "last_ok": "2026-10-26T06:53:54+00:00",
-      "last_count": 16,
+      "last_ok": "2026-10-26T14:05:27+00:00",
+      "last_count": 13,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "BNP Paribas": {
-      "last_ok": "2026-10-26T06:53:54+00:00",
-      "last_count": 5,
+      "last_ok": "2026-10-26T14:05:27+00:00",
+      "last_count": 6,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "Natixis": {
-      "last_ok": "2026-10-26T06:53:54+00:00",
-      "last_count": 9,
+      "last_ok": "2026-10-26T14:05:27+00:00",
+      "last_count": 10,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
