@@ -186,6 +186,7 @@
     "bnp_vie-analyste-reporting-financier-luxembourg-h-f",
     "bnp_vie-charge-d-etudes-actuarielles-gerlingen-h-f",
     "bnp_vie-corporate-coverage-associate-francfort-h-f",
+    "bnp_vie-credit-analyst-geneve-h-f",
     "bnp_vie-gestionnaire-de-projet-achats-luxembourg-h-f",
     "bnp_vie-investment-advisory-banque-privee-luxembourg-h-f",
     "bnp_vie-it-production-support-oosterhout-h-f",
@@ -229,40 +230,42 @@
     "sg_26000M9A",
     "sg_26000MG1",
     "sg_26000MG5",
+    "sg_26000MMU",
+    "sg_26000MND",
     "sg_26000MNF",
     "sg_26000MPD",
     "sg_26000MX6",
     "sg_26000N15"
   ],
-  "last_updated": "2026-11-04T09:00:13.765172+00:00",
-  "last_banks_check": "2026-11-04T08:59:47+00:00",
+  "last_updated": "2026-11-04T17:01:36.877186+00:00",
+  "last_banks_check": "2026-11-04T17:01:19+00:00",
   "source_health": {
     "Business France": {
       "last_ok": "2026-10-21T04:29:30+00:00",
       "last_count": 18,
       "failing_since": "2026-10-21T09:31:46+00:00",
-      "failed_checks": 74,
+      "failed_checks": 75,
       "alerted": true,
       "last_error": "aucune offre récupérée, ni via Chromium ni via requests"
     },
     "Société Générale": {
-      "last_ok": "2026-11-04T08:59:47+00:00",
-      "last_count": 16,
+      "last_ok": "2026-11-04T17:01:19+00:00",
+      "last_count": 17,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "BNP Paribas": {
-      "last_ok": "2026-11-03T21:54:34+00:00",
-      "last_count": 6,
-      "failing_since": "2026-11-04T02:05:27+00:00",
-      "failed_checks": 2,
+      "last_ok": "2026-11-04T17:01:19+00:00",
+      "last_count": 1,
+      "failing_since": null,
+      "failed_checks": 0,
       "alerted": false,
-      "last_error": "0 offre en ligne"
+      "last_error": null
     },
     "Natixis": {
-      "last_ok": "2026-11-04T08:59:47+00:00",
+      "last_ok": "2026-11-04T17:01:19+00:00",
       "last_count": 9,
       "failing_since": null,
       "failed_checks": 0,
