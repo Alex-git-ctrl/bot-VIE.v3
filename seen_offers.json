@@ -182,6 +182,9 @@
     "bnp_v-i-e-corporate-coverage-analyst-stuttgart-h-f",
     "bnp_v-i-e-credit-analyst-tokyo-h-f",
     "bnp_v-i-e-data-scientist-h-f-hong-kong",
+    "bnp_v-i-e-equity-sales-h-f-frankfurt-24-mois",
+    "bnp_v-i-e-equity-sales-h-f-frankfurt-24-mois-1",
+    "bnp_v-i-e-full-stack-ai-transformation-engineer-h-f-lisbon-24-mois",
     "bnp_v-i-e-ig-data-analytics-h-f-montreal-24-mois",
     "bnp_v-i-e-quantitative-backtesting-analyst-porto-h-f",
     "bnp_v-i-e-repo-trade-assistant-new-york-h-f",
@@ -189,6 +192,7 @@
     "bnp_v-i-e-tactical-quantitative-developper-new-york-h-f-1",
     "bnp_v-i-e-trader-securities-lending-junior-tokyo-h-f",
     "bnp_v-i-e-transportation-capital-markets-analyst-athenes-h-f",
+    "bnp_vie-actuaire-pricing-motor-santiago-h-f",
     "bnp_vie-analyst-change-solutions-new-jersey-h-f",
     "bnp_vie-analyst-strategy-development-data-lisbonne-h-f",
     "bnp_vie-analyste-credits-professionnel-de-l-immobilier-luxembourg-h-f",
@@ -198,6 +202,7 @@
     "bnp_vie-corporate-coverage-associate-francfort-h-f",
     "bnp_vie-credit-analyst-geneve-h-f",
     "bnp_vie-gestionnaire-de-projet-achats-luxembourg-h-f",
+    "bnp_vie-ict-project-specialist-milan-h-f",
     "bnp_vie-investment-advisory-banque-privee-luxembourg-h-f",
     "bnp_vie-it-production-support-oosterhout-h-f",
     "bnp_vie-machine-learning-officer-lisbonne-h-f",
@@ -254,19 +259,19 @@
     "sg_26000NFM",
     "sg_26000NH6"
   ],
-  "last_updated": "2026-11-13T11:13:48.238018+00:00",
-  "last_banks_check": "2026-11-13T11:13:33+00:00",
+  "last_updated": "2026-11-13T18:33:28.063631+00:00",
+  "last_banks_check": "2026-11-13T18:32:54+00:00",
   "source_health": {
     "Business France": {
       "last_ok": "2026-10-21T04:29:30+00:00",
       "last_count": 18,
       "failing_since": "2026-10-21T09:31:46+00:00",
-      "failed_checks": 110,
+      "failed_checks": 111,
       "alerted": true,
       "last_error": "aucune offre récupérée, ni via Chromium ni via requests"
     },
     "Société Générale": {
-      "last_ok": "2026-11-13T11:13:33+00:00",
+      "last_ok": "2026-11-13T18:32:54+00:00",
       "last_count": 13,
       "failing_since": null,
       "failed_checks": 0,
@@ -274,15 +279,15 @@
       "last_error": null
     },
     "BNP Paribas": {
-      "last_ok": "2026-11-13T11:13:33+00:00",
-      "last_count": 3,
+      "last_ok": "2026-11-13T18:32:54+00:00",
+      "last_count": 8,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "Natixis": {
-      "last_ok": "2026-11-13T11:13:33+00:00",
+      "last_ok": "2026-11-13T18:32:54+00:00",
       "last_count": 9,
       "failing_since": null,
       "failed_checks": 0,
