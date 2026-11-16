@@ -193,6 +193,7 @@
     "bnp_v-i-e-trader-securities-lending-junior-tokyo-h-f",
     "bnp_v-i-e-transportation-capital-markets-analyst-athenes-h-f",
     "bnp_vie-actuaire-pricing-motor-santiago-h-f",
+    "bnp_vie-actuariat-modelisation-et-suivi-du-risque-istanbul-h-f",
     "bnp_vie-analyst-change-solutions-new-jersey-h-f",
     "bnp_vie-analyst-strategy-development-data-lisbonne-h-f",
     "bnp_vie-analyste-credits-professionnel-de-l-immobilier-luxembourg-h-f",
@@ -259,40 +260,42 @@
     "sg_26000N15",
     "sg_26000N5F",
     "sg_26000N5O",
+    "sg_26000NEI",
     "sg_26000NFM",
     "sg_26000NFV",
     "sg_26000NH6",
-    "sg_26000NIB"
+    "sg_26000NIB",
+    "sg_26000NP2"
   ],
-  "last_updated": "2026-11-16T15:32:33.657783+00:00",
-  "last_banks_check": "2026-11-16T15:32:14+00:00",
+  "last_updated": "2026-11-16T23:49:08.625300+00:00",
+  "last_banks_check": "2026-11-16T23:48:43+00:00",
   "source_health": {
     "Business France": {
       "last_ok": "2026-10-21T04:29:30+00:00",
       "last_count": 18,
       "failing_since": "2026-10-21T09:31:46+00:00",
-      "failed_checks": 123,
+      "failed_checks": 124,
       "alerted": true,
       "last_error": "aucune offre récupérée, ni via Chromium ni via requests"
     },
     "Société Générale": {
-      "last_ok": "2026-11-16T15:32:14+00:00",
-      "last_count": 14,
+      "last_ok": "2026-11-16T23:48:43+00:00",
+      "last_count": 16,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "BNP Paribas": {
-      "last_ok": "2026-11-16T15:32:14+00:00",
-      "last_count": 2,
+      "last_ok": "2026-11-16T23:48:43+00:00",
+      "last_count": 3,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "Natixis": {
-      "last_ok": "2026-11-16T15:32:14+00:00",
+      "last_ok": "2026-11-16T23:48:43+00:00",
       "last_count": 9,
       "failing_since": null,
       "failed_checks": 0,
