@@ -175,6 +175,7 @@
     "bnp_menedzerka-menedzer-ds-rozwoju-bankowosci-premium",
     "bnp_menedzerka-menedzer-ds-rozwoju-bankowosci-premium-1",
     "bnp_v-i-e-alm-treasury-officer-hong-kong-h-f",
+    "bnp_v-i-e-analyste-juridique-activites-bancaires-h-f-montreal-24-mois",
     "bnp_v-i-e-capital-market-p-l-specialist-lisbonne-h-f",
     "bnp_v-i-e-chief-of-staff-support-h-f-londres",
     "bnp_v-i-e-commodity-sales-assistant-bruxelles-h-f-12-mois",
@@ -219,6 +220,7 @@
     "ntx_21327",
     "ntx_21777",
     "ntx_21831",
+    "ntx_22212",
     "ntx_22279",
     "ntx_22301",
     "ntx_22359",
@@ -270,27 +272,27 @@
     "sg_26000NP2",
     "sg_26000NPE"
   ],
-  "last_updated": "2026-11-18T12:19:46.153573+00:00",
-  "last_banks_check": "2026-11-18T12:19:21+00:00",
+  "last_updated": "2026-11-18T20:40:25.818009+00:00",
+  "last_banks_check": "2026-11-18T20:40:07+00:00",
   "source_health": {
     "Business France": {
       "last_ok": "2026-10-21T04:29:30+00:00",
       "last_count": 18,
       "failing_since": "2026-10-21T09:31:46+00:00",
-      "failed_checks": 129,
+      "failed_checks": 130,
       "alerted": true,
       "last_error": "aucune offre récupérée, ni via Chromium ni via requests"
     },
     "Société Générale": {
-      "last_ok": "2026-11-18T12:19:21+00:00",
-      "last_count": 17,
+      "last_ok": "2026-11-18T20:40:07+00:00",
+      "last_count": 15,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "BNP Paribas": {
-      "last_ok": "2026-11-18T12:19:21+00:00",
+      "last_ok": "2026-11-18T20:40:07+00:00",
       "last_count": 7,
       "failing_since": null,
       "failed_checks": 0,
@@ -298,8 +300,8 @@
       "last_error": null
     },
     "Natixis": {
-      "last_ok": "2026-11-18T12:19:21+00:00",
-      "last_count": 9,
+      "last_ok": "2026-11-18T20:40:07+00:00",
+      "last_count": 10,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
