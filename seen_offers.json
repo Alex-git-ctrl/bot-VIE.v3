@@ -187,6 +187,7 @@
     "bnp_v-i-e-full-stack-ai-transformation-engineer-h-f-lisbon-24-mois",
     "bnp_v-i-e-ig-data-analytics-h-f-montreal-24-mois",
     "bnp_v-i-e-quantitative-backtesting-analyst-porto-h-f",
+    "bnp_v-i-e-repo-sales-trader-assistant-lisbonne-h-f",
     "bnp_v-i-e-repo-trade-assistant-new-york-h-f",
     "bnp_v-i-e-structured-products-sales-frankfurt-h-f",
     "bnp_v-i-e-tactical-quantitative-developper-new-york-h-f-1",
@@ -212,6 +213,7 @@
     "bnp_vie-marketing-officer-h-f",
     "bnp_vie-operations-change-officer-h-f",
     "bnp_vie-operations-manager-amsterdam-h-f",
+    "bnp_vie-sales-efficiency-oberhaching-munich-h-f",
     "bnp_vie-sales-manager-hong-kong-h-f",
     "bnp_vie-security-coordinator-goteborg-h-f",
     "ntx_21327",
@@ -268,19 +270,19 @@
     "sg_26000NP2",
     "sg_26000NPE"
   ],
-  "last_updated": "2026-11-18T03:49:47.385744+00:00",
-  "last_banks_check": "2026-11-18T03:49:31+00:00",
+  "last_updated": "2026-11-18T12:19:46.153573+00:00",
+  "last_banks_check": "2026-11-18T12:19:21+00:00",
   "source_health": {
     "Business France": {
       "last_ok": "2026-10-21T04:29:30+00:00",
       "last_count": 18,
       "failing_since": "2026-10-21T09:31:46+00:00",
-      "failed_checks": 128,
+      "failed_checks": 129,
       "alerted": true,
       "last_error": "aucune offre récupérée, ni via Chromium ni via requests"
     },
     "Société Générale": {
-      "last_ok": "2026-11-18T03:49:31+00:00",
+      "last_ok": "2026-11-18T12:19:21+00:00",
       "last_count": 17,
       "failing_since": null,
       "failed_checks": 0,
@@ -288,15 +290,15 @@
       "last_error": null
     },
     "BNP Paribas": {
-      "last_ok": "2026-11-18T03:49:31+00:00",
-      "last_count": 1,
+      "last_ok": "2026-11-18T12:19:21+00:00",
+      "last_count": 7,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "Natixis": {
-      "last_ok": "2026-11-18T03:49:31+00:00",
+      "last_ok": "2026-11-18T12:19:21+00:00",
       "last_count": 9,
       "failing_since": null,
       "failed_checks": 0,
