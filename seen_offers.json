@@ -280,19 +280,19 @@
     "sg_26000NPE",
     "sg_26000NWF"
   ],
-  "last_updated": "2026-11-23T21:29:09.766685+00:00",
-  "last_banks_check": "2026-11-23T21:28:47+00:00",
+  "last_updated": "2026-11-24T05:28:39.411386+00:00",
+  "last_banks_check": "2026-11-24T05:28:17+00:00",
   "source_health": {
     "Business France": {
       "last_ok": "2026-10-21T04:29:30+00:00",
       "last_count": 18,
       "failing_since": "2026-10-21T09:31:46+00:00",
-      "failed_checks": 147,
+      "failed_checks": 148,
       "alerted": true,
       "last_error": "aucune offre récupérée, ni via Chromium ni via requests"
     },
     "Société Générale": {
-      "last_ok": "2026-11-23T21:28:47+00:00",
+      "last_ok": "2026-11-24T05:28:17+00:00",
       "last_count": 16,
       "failing_since": null,
       "failed_checks": 0,
@@ -300,7 +300,7 @@
       "last_error": null
     },
     "BNP Paribas": {
-      "last_ok": "2026-11-23T21:28:47+00:00",
+      "last_ok": "2026-11-24T05:28:17+00:00",
       "last_count": 8,
       "failing_since": null,
       "failed_checks": 0,
@@ -308,7 +308,7 @@
       "last_error": null
     },
     "Natixis": {
-      "last_ok": "2026-11-23T21:28:47+00:00",
+      "last_ok": "2026-11-24T05:28:17+00:00",
       "last_count": 7,
       "failing_since": null,
       "failed_checks": 0,
