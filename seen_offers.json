@@ -234,6 +234,7 @@
     "ntx_22279",
     "ntx_22301",
     "ntx_22359",
+    "ntx_22650",
     "ntx_WORKDAY_JR01204",
     "ntx_WORKDAY_PVR09750",
     "sg_26000EPO",
@@ -288,38 +289,39 @@
     "sg_26000NP2",
     "sg_26000NPE",
     "sg_26000NVZ",
-    "sg_26000NWF"
+    "sg_26000NWF",
+    "sg_26000NZB"
   ],
-  "last_updated": "2026-11-26T02:17:17.700045+00:00",
-  "last_banks_check": "2026-11-26T02:17:01+00:00",
+  "last_updated": "2026-11-26T10:58:43.425948+00:00",
+  "last_banks_check": "2026-11-26T10:58:18+00:00",
   "source_health": {
     "Business France": {
       "last_ok": "2026-10-21T04:29:30+00:00",
       "last_count": 18,
       "failing_since": "2026-10-21T09:31:46+00:00",
-      "failed_checks": 153,
+      "failed_checks": 154,
       "alerted": true,
       "last_error": "aucune offre récupérée, ni via Chromium ni via requests"
     },
     "Société Générale": {
-      "last_ok": "2026-11-26T02:17:01+00:00",
-      "last_count": 17,
+      "last_ok": "2026-11-26T10:58:18+00:00",
+      "last_count": 18,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "BNP Paribas": {
-      "last_ok": "2026-11-26T02:17:01+00:00",
-      "last_count": 6,
+      "last_ok": "2026-11-26T10:58:18+00:00",
+      "last_count": 7,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "Natixis": {
-      "last_ok": "2026-11-26T02:17:01+00:00",
-      "last_count": 7,
+      "last_ok": "2026-11-26T10:58:18+00:00",
+      "last_count": 8,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
