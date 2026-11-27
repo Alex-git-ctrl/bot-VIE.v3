@@ -226,6 +226,7 @@
     "bnp_vie-sales-efficiency-oberhaching-munich-h-f",
     "bnp_vie-sales-manager-hong-kong-h-f",
     "bnp_vie-security-coordinator-goteborg-h-f",
+    "bnp_vie-us-loan-research-analyst-h-f",
     "bnp_vie-valuation-and-model-risk-analyst-tokyo-h-f-1",
     "ntx_21327",
     "ntx_21777",
@@ -288,39 +289,42 @@
     "sg_26000NJ7",
     "sg_26000NP2",
     "sg_26000NPE",
+    "sg_26000NTD",
+    "sg_26000NV2",
     "sg_26000NVZ",
     "sg_26000NWF",
+    "sg_26000NYD",
     "sg_26000NZB"
   ],
-  "last_updated": "2026-11-27T02:45:22.444825+00:00",
-  "last_banks_check": "2026-11-27T02:44:58+00:00",
+  "last_updated": "2026-11-27T11:27:07.140192+00:00",
+  "last_banks_check": "2026-11-27T11:26:51+00:00",
   "source_health": {
     "Business France": {
       "last_ok": "2026-10-21T04:29:30+00:00",
       "last_count": 18,
       "failing_since": "2026-10-21T09:31:46+00:00",
-      "failed_checks": 156,
+      "failed_checks": 157,
       "alerted": true,
       "last_error": "aucune offre récupérée, ni via Chromium ni via requests"
     },
     "Société Générale": {
-      "last_ok": "2026-11-27T02:44:58+00:00",
-      "last_count": 17,
+      "last_ok": "2026-11-27T11:26:51+00:00",
+      "last_count": 19,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "BNP Paribas": {
-      "last_ok": "2026-11-27T02:44:58+00:00",
-      "last_count": 3,
+      "last_ok": "2026-11-27T11:26:51+00:00",
+      "last_count": 5,
       "failing_since": null,
       "failed_checks": 0,
       "alerted": false,
       "last_error": null
     },
     "Natixis": {
-      "last_ok": "2026-11-27T02:44:58+00:00",
+      "last_ok": "2026-11-27T11:26:51+00:00",
       "last_count": 7,
       "failing_since": null,
       "failed_checks": 0,
